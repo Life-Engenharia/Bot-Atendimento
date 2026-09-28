@@ -9,7 +9,7 @@ describe("commercial conversation", () => {
     const conversation = service.start("+5511999999999");
 
     service.acceptConsent(conversation.id);
-    expect(service.selectCommercialRoute(conversation.id).question).toBe("Qual serviço você procura?");
+    expect(service.selectCommercialRoute(conversation.id).question).toBe("Qual serviço você está procurando?");
 
     ["PMOC", "Ana Silva", "Clínica Alfa", "São Paulo - Unidade Norte", "+5511999999999", "até 7 dias", "Preciso revisar o plano mensal."].forEach((answer) => {
       service.answer(conversation.id, answer);

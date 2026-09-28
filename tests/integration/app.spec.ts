@@ -20,7 +20,7 @@ describe("application foundation", () => {
     await app.close();
   });
 
-  it("verifies the webhook and ignores a duplicate Meta message", async () => {
+  it("verifies the webhook, presents the initial menu and ignores a duplicate Meta message", async () => {
     const app = buildApp({ environment: { NODE_ENV: "test", PORT: 3000, WHATSAPP_VERIFY_TOKEN: "test-token-123" } });
     const verification = await app.inject({
       method: "GET",
@@ -38,8 +38,35 @@ describe("application foundation", () => {
     });
 
     expect(verification.body).toBe("challenge-42");
-    expect(firstDelivery.json()).toMatchObject({ processed: 1, duplicates: 0 });
+    expect(firstDelivery.json()).toMatchObject({
+      processed: 1,
+      duplicates: 0,
+      responses: [{ state: "CONSENT" }]
+    });
     expect(duplicateDelivery.json()).toMatchObject({ processed: 0, duplicates: 1 });
+    await app.close();
+  });
+
+  it("offers the route menu after consent and sends human requests to handoff", async () => {
+    const app = buildApp({ environment: { NODE_ENV: "test", PORT: 3000, WHATSAPP_VERIFY_TOKEN: "test-token-123" } });
+    await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "menu-1", from: "5511999999999", text: "Olá" }] } });
+    const route = await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "menu-2", from: "5511999999999", text: "1" }] } });
+    const human = await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "menu-3", from: "5511999999999", text: "3" }] } });
+
+    expect(route.json()).toMatchObject({ responses: [{ state: "ROUTE", text: expect.stringContaining("Como posso te ajudar hoje?") }] });
+    expect(human.json()).toMatchObject({ responses: [{ state: "HANDOFF_HUMANO", text: expect.stringContaining("encaminhar") }] });
+    await app.close();
+  });
+
+  it("shows every commercial service and starts collection after selection", async () => {
+    const app = buildApp({ environment: { NODE_ENV: "test", PORT: 3000, WHATSAPP_VERIFY_TOKEN: "test-token-123" } });
+    await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "commercial-1", from: "5511988888888", text: "Olá" }] } });
+    await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "commercial-2", from: "5511988888888", text: "1" }] } });
+    const services = await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "commercial-3", from: "5511988888888", text: "1" }] } });
+    const selection = await app.inject({ method: "POST", url: "/webhooks/whatsapp", payload: { messages: [{ id: "commercial-4", from: "5511988888888", text: "2" }] } });
+
+    expect(services.json()).toMatchObject({ responses: [{ state: "COMMERCIAL_SERVICE_MENU", text: expect.stringContaining("Calibração") }] });
+    expect(selection.json()).toMatchObject({ responses: [{ state: "COMMERCIAL_COLLECTING", text: expect.stringContaining("PMOC") }] });
     await app.close();
   });
 });

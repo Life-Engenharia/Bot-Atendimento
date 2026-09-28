@@ -9,6 +9,7 @@ export type IncomingMessage = {
 export type WebhookResult = {
   processed: number;
   duplicates: number;
+  acceptedMessages: IncomingMessage[];
 };
 
 export class WebhookProcessor {
@@ -19,6 +20,7 @@ export class WebhookProcessor {
   process(messages: IncomingMessage[]): WebhookResult {
     let processed = 0;
     let duplicates = 0;
+    const acceptedMessages: IncomingMessage[] = [];
 
     for (const message of messages) {
       if (this.receivedMessageIds.has(message.id)) {
@@ -28,6 +30,7 @@ export class WebhookProcessor {
 
       this.receivedMessageIds.add(message.id);
       processed += 1;
+      acceptedMessages.push(message);
       this.auditLog.append({
         event: "webhook.message_received",
         actor: "meta",
@@ -35,6 +38,6 @@ export class WebhookProcessor {
       });
     }
 
-    return { processed, duplicates };
+    return { processed, duplicates, acceptedMessages };
   }
 }

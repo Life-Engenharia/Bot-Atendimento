@@ -198,6 +198,16 @@ components:
         received: { type: boolean, example: true }
         processed: { type: integer, example: 1 }
         duplicates: { type: integer, example: 0 }
+        responses:
+          type: array
+          items: { $ref: '#/components/schemas/MenuResponse' }
+    MenuResponse:
+      type: object
+      required: [to, state, text]
+      properties:
+        to: { type: string, example: '5511999999999' }
+        state: { type: string, enum: [CONSENT, ROUTE, COMMERCIAL_SERVICE_MENU, COMMERCIAL_COLLECTING, TECHNICAL_COLLECTING, HANDOFF_HUMANO] }
+        text: { type: string }
     StartConversationRequest:
       type: object
       required: [phone]

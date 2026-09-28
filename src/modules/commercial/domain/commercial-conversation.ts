@@ -26,13 +26,13 @@ export type CommercialConversation = {
 };
 
 const questions: Record<CommercialField, string> = {
-  service: "Qual serviço você procura?",
-  name: "Qual é o seu nome?",
-  company: "Qual é a empresa ou instituição?",
+  service: "Qual serviço você está procurando?",
+  name: "Para eu te atender melhor, qual é o seu nome?",
+  company: "Qual é o nome da empresa ou instituição?",
   location: "Em qual cidade e unidade será o atendimento?",
-  phone: "Qual telefone devemos usar para retorno?",
+  phone: "Qual telefone você prefere para retorno?",
   timeline: "Para quando você precisa desse serviço?",
-  need: "Conte brevemente o que você precisa."
+  need: "Me conte, por favor, um pouco mais sobre o que você precisa."
 };
 
 export function nextCommercialField(values: Partial<CommercialRequest>): CommercialField | undefined {
