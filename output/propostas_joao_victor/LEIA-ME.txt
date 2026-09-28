@@ -1,0 +1,9 @@
+KIT DE PROPOSTAS — JOÃO VICTOR VASCONCELOS
+
+Abra Editor_de_Propostas.html no navegador. Escolha um dos 7 modelos e clique no texto para editar. Salvar kit editável baixa uma cópia com as alterações de todos os modelos. Mova essa cópia para continuar em outro dispositivo. Não há sincronização automática.
+
+Baixar proposta para cliente exporta somente o modelo atual, sem as instruções. Imprimir / PDF usa a função do navegador. Baixar texto permite copiar para Word, Google Docs ou outro editor. Os 7 arquivos .md também podem ser abertos como texto.
+
+Em celulares que abrem HTML apenas em pré-visualização, use o navegador com suporte a arquivos locais ou os arquivos .md em um editor de texto.
+
+Preencha todos os campos entre colchetes, confira os valores e remova itens não aplicáveis antes de enviar. Preços, qualificações profissionais e resultados anteriores não foram inventados.
