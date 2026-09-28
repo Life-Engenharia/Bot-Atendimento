@@ -1,0 +1,18 @@
+# Dependências e builds
+node_modules/
+dist/
+coverage/
+.turbo/
+
+# Ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Arquivos de ferramentas e sistema
+*.log
+.DS_Store
+Thumbs.db
+
+# Trabalho temporário local
+tmp/
