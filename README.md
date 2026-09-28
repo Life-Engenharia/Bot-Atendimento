@@ -33,4 +33,4 @@ npm test
 npm run dev
 ```
 
-O serviço responde em `GET /health`. O webhook simulado está em `GET` e `POST /webhooks/whatsapp`; ele ainda não se conecta à Meta.
+O serviço responde em `GET /health`. O webhook simulado está em `GET` e `POST /webhooks/whatsapp`; ele ainda não se conecta à Meta. A documentação Swagger está em `http://localhost:3000/documentation` e sua fonte está em `docs/api/openapi.yaml`.

@@ -1,4 +1,8 @@
 import Fastify, { FastifyInstance } from "fastify";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadEnvironment, Environment } from "./config/env.js";
 import { InMemoryAuditLog } from "./modules/audit/audit-log.js";
 import { WebhookProcessor, IncomingMessage } from "./modules/webhook/application/webhook-processor.js";
@@ -14,6 +18,19 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const auditLog = dependencies.auditLog ?? new InMemoryAuditLog();
   const webhookProcessor = dependencies.webhookProcessor ?? new WebhookProcessor(auditLog);
   const app = Fastify({ logger: environment.NODE_ENV !== "test" });
+  const openApiPath = fileURLToPath(new URL("../docs/api/openapi.yaml", import.meta.url));
+
+  app.register(fastifySwagger, {
+    mode: "static",
+    specification: {
+      path: openApiPath,
+      baseDir: dirname(openApiPath)
+    }
+  });
+  app.register(fastifySwaggerUi, {
+    routePrefix: "/documentation",
+    uiConfig: { docExpansion: "list", deepLinking: false }
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 

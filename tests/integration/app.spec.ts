@@ -11,6 +11,15 @@ describe("application foundation", () => {
     await app.close();
   });
 
+  it("serves the OpenAPI contract through Swagger", async () => {
+    const app = buildApp({ environment: { NODE_ENV: "test", PORT: 3000, WHATSAPP_VERIFY_TOKEN: "test-token-123" } });
+    const response = await app.inject({ method: "GET", url: "/documentation/json" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ openapi: "3.1.0", info: { title: "Bot Atendimento Life API" } });
+    await app.close();
+  });
+
   it("verifies the webhook and ignores a duplicate Meta message", async () => {
     const app = buildApp({ environment: { NODE_ENV: "test", PORT: 3000, WHATSAPP_VERIFY_TOKEN: "test-token-123" } });
     const verification = await app.inject({
