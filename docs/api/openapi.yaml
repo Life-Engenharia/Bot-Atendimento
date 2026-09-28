@@ -1,0 +1,266 @@
+openapi: 3.1.0
+info:
+  title: Bot Atendimento Life API
+  version: 0.1.0
+  description: |
+    Contrato da API do orquestrador de triagem WhatsApp da Life Engenharia.
+    Endpoints marcados como `planned` documentam o contrato da próxima entrega e não estão disponíveis ainda.
+    A interface Swagger é publicada localmente em `/documentation`.
+  contact:
+    name: Time de Desenvolvimento Life
+servers:
+  - url: http://localhost:3000
+    description: Desenvolvimento local
+tags:
+  - name: Health
+  - name: WhatsApp webhook
+  - name: Conversas
+  - name: Protocolos
+  - name: Auditoria
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Verifica a disponibilidade do serviço
+      responses:
+        '200':
+          description: Serviço disponível
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /webhooks/whatsapp:
+    get:
+      tags: [WhatsApp webhook]
+      summary: Valida a assinatura do webhook da Meta
+      description: A Meta chama este endpoint durante o cadastro do callback.
+      parameters:
+        - $ref: '#/components/parameters/HubMode'
+        - $ref: '#/components/parameters/HubVerifyToken'
+        - $ref: '#/components/parameters/HubChallenge'
+      responses:
+        '200':
+          description: Desafio retornado em texto puro
+          content:
+            text/plain:
+              schema: { type: string }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [WhatsApp webhook]
+      summary: Recebe eventos normalizados do WhatsApp
+      description: |
+        Implementado atualmente para o contrato de simulação. O adaptador Meta converterá o payload oficial
+        para este formato interno antes de processar a conversa. A mensagem é idempotente pelo campo `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookSimulationRequest'
+      responses:
+        '200':
+          description: Evento aceito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookReceipt'
+  /v1/conversations:
+    post:
+      tags: [Conversas]
+      summary: Inicia ou retoma uma conversa comercial
+      x-implementation-status: planned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartConversationRequest'
+      responses:
+        '201':
+          description: Conversa iniciada ou retomada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+  /v1/conversations/{conversationId}/messages:
+    post:
+      tags: [Conversas]
+      summary: Processa uma resposta do cliente no fluxo comercial
+      x-implementation-status: planned
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationMessageRequest'
+      responses:
+        '200':
+          description: Próxima mensagem do bot, resumo ou protocolo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+        '409':
+          $ref: '#/components/responses/InvalidState'
+  /v1/protocols/{reference}:
+    get:
+      tags: [Protocolos]
+      summary: Consulta um protocolo autorizado
+      x-implementation-status: planned
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          schema: { type: string, example: LFE-000001 }
+      responses:
+        '200':
+          description: Protocolo encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Protocol'
+  /v1/audit-events:
+    get:
+      tags: [Auditoria]
+      summary: Lista eventos de auditoria por protocolo
+      x-implementation-status: planned
+      parameters:
+        - name: protocol
+          in: query
+          schema: { type: string, example: LFE-000001 }
+      responses:
+        '200':
+          description: Eventos encontrados
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuditEvent' }
+components:
+  parameters:
+    HubMode:
+      name: hub.mode
+      in: query
+      required: true
+      schema: { type: string, example: subscribe }
+    HubVerifyToken:
+      name: hub.verify_token
+      in: query
+      required: true
+      schema: { type: string }
+    HubChallenge:
+      name: hub.challenge
+      in: query
+      required: true
+      schema: { type: string }
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Forbidden:
+      description: Token de verificação inválido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidState:
+      description: Estado da conversa não permite a operação
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, example: ok }
+    IncomingMessage:
+      type: object
+      required: [id, from]
+      properties:
+        id: { type: string, example: wamid.HBgMNTUxMTk5OTk5OTk5OQ== }
+        from: { type: string, example: '5511999999999', description: Telefone em formato E.164 sem sinal de mais. }
+        text: { type: string, example: Olá }
+    WebhookSimulationRequest:
+      type: object
+      properties:
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/IncomingMessage' }
+    WebhookReceipt:
+      type: object
+      required: [received, processed, duplicates]
+      properties:
+        received: { type: boolean, example: true }
+        processed: { type: integer, example: 1 }
+        duplicates: { type: integer, example: 0 }
+    StartConversationRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone: { type: string, example: '+5511999999999' }
+        route: { type: string, enum: [commercial], default: commercial }
+    ConversationMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 1000 }
+    ConversationResponse:
+      type: object
+      required: [id, state, response]
+      properties:
+        id: { type: string, format: uuid }
+        state: { type: string, enum: [CONSENT, ROUTE, COLLECTING, REVIEW, QUEUED, HANDOFF_HUMANO] }
+        response: { type: string }
+        protocol: { type: string, example: LFE-000001 }
+    Protocol:
+      type: object
+      required: [reference, type, status]
+      properties:
+        reference: { type: string, example: LFE-000001 }
+        type: { type: string, enum: [commercial, technical] }
+        status: { type: string, enum: [new, awaiting_confirmation, in_progress, awaiting_customer, resolved, closed] }
+        suggestedPriority: { type: string, nullable: true, enum: [P1, P2, P3, P4] }
+        confirmedPriority: { type: string, nullable: true, enum: [P1, P2, P3, P4] }
+    AuditEvent:
+      type: object
+      required: [id, event, actor, occurredAt]
+      properties:
+        id: { type: string, format: uuid }
+        event: { type: string, example: commercial.protocol_queued }
+        actor: { type: string, example: customer }
+        protocolId: { type: string, nullable: true }
+        occurredAt: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+x-integrations:
+  metaWhatsApp:
+    implementationStatus: planned
+    inbound: Meta invokes GET and POST /webhooks/whatsapp; validate the verification token and webhook signature before normalization.
+    outbound: Send messages only through the official Life number; persist the Meta message ID for idempotency and delivery tracking.
+    reference: https://developers.facebook.com/docs/whatsapp/cloud-api/
+  ploomes:
+    implementationStatus: planned
+    baseUrl: https://public-api2.ploomes.com
+    authentication: User-Key header from an integration user created by a Ploomes administrator.
+    scope: Only Contacts and Deals for commercial requests and out-of-contract assistance. Technical tickets are excluded.
+    constraints: 120 requests per minute shared by all integration users; handle HTTP 429; use OData pagination and select only needed fields.
+    reference: https://developers.ploomes.com/
+  supabase:
+    implementationStatus: planned
+    database: PostgreSQL schema managed through db/migrations.
+    storage: Keep attachments private and serve them with short-lived signed URLs.
+    reference: https://supabase.com/docs/reference/javascript/file-buckets-createsignedurl
+  openai:
+    implementationStatus: planned
+    endpoint: POST https://api.openai.com/v1/responses
+    scope: Extraction, summaries and low-confidence detection. Never determines priority, risk, permissions or technical diagnosis.
+    data: Send the minimum necessary context and use a server-side API key only.
+    reference: https://developers.openai.com/api/reference/cli/resources/responses/methods/create
