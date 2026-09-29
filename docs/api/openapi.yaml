@@ -183,7 +183,12 @@ components:
       required: [id, from]
       properties:
         id: { type: string, example: wamid.HBgMNTUxMTk5OTk5OTk5OQ== }
-        from: { type: string, example: '5511999999999', description: Telefone em formato E.164 sem sinal de mais. }
+        from:
+          {
+            type: string,
+            example: '5511999999999',
+            description: Telefone em formato E.164 sem sinal de mais.,
+          }
         text: { type: string, example: Olá }
     WebhookSimulationRequest:
       type: object
@@ -206,7 +211,19 @@ components:
       required: [to, state, text]
       properties:
         to: { type: string, example: '5511999999999' }
-        state: { type: string, enum: [CONSENT, ROUTE, COMMERCIAL_SERVICE_MENU, COMMERCIAL_COLLECTING, TECHNICAL_COLLECTING, HANDOFF_HUMANO] }
+        state:
+          {
+            type: string,
+            enum:
+              [
+                CONSENT,
+                ROUTE,
+                COMMERCIAL_SERVICE_MENU,
+                COMMERCIAL_COLLECTING,
+                TECHNICAL_COLLECTING,
+                HANDOFF_HUMANO,
+              ],
+          }
         text: { type: string }
     StartConversationRequest:
       type: object
@@ -233,7 +250,11 @@ components:
       properties:
         reference: { type: string, example: LFE-000001 }
         type: { type: string, enum: [commercial, technical] }
-        status: { type: string, enum: [new, awaiting_confirmation, in_progress, awaiting_customer, resolved, closed] }
+        status:
+          {
+            type: string,
+            enum: [new, awaiting_confirmation, in_progress, awaiting_customer, resolved, closed],
+          }
         suggestedPriority: { type: string, nullable: true, enum: [P1, P2, P3, P4] }
         confirmedPriority: { type: string, nullable: true, enum: [P1, P2, P3, P4] }
     AuditEvent:
@@ -265,7 +286,7 @@ x-integrations:
     reference: https://developers.ploomes.com/
   supabase:
     implementationStatus: planned
-    database: PostgreSQL schema managed through db/migrations.
+    database: PostgreSQL schema managed through supabase/migrations.
     storage: Keep attachments private and serve them with short-lived signed URLs.
     reference: https://supabase.com/docs/reference/javascript/file-buckets-createsignedurl
   openai:
