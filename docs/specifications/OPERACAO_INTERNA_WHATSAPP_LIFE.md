@@ -18,14 +18,14 @@ Antes da ativação, a Life cadastra cada colaborador com nome, telefone no form
 
 O bot identifica o colaborador pelo número de WhatsApp de origem. Número não cadastrado não recebe dados de cliente, anexos ou comandos operacionais. Troca de aparelho, número ou desligamento exige atualização imediata do cadastro pela Coordenação ou Administração.
 
-| Campo | Uso |
-|---|---|
-| Nome e matrícula/e-mail corporativo | Identificação e auditoria |
-| Telefone autorizado | Autenticação inicial no canal interno |
-| Cargo e equipe | Define menus e permissões |
-| Escala, horário e plantão | Define quem recebe alertas |
-| Responsável e backup | Define o escalonamento P1/P2 |
-| Status ativo/inativo | Suspende acesso imediatamente quando necessário |
+| Campo                               | Uso                                             |
+| ----------------------------------- | ----------------------------------------------- |
+| Nome e matrícula/e-mail corporativo | Identificação e auditoria                       |
+| Telefone autorizado                 | Autenticação inicial no canal interno           |
+| Cargo e equipe                      | Define menus e permissões                       |
+| Escala, horário e plantão           | Define quem recebe alertas                      |
+| Responsável e backup                | Define o escalonamento P1/P2                    |
+| Status ativo/inativo                | Suspende acesso imediatamente quando necessário |
 
 ## Cargos e funcionamento
 
@@ -136,14 +136,14 @@ Mantém a estrutura de operação.
 
 O botão ou comando `MENU` mostra somente as opções permitidas ao telefone identificado.
 
-| Perfil | Menu interno |
-|---|---|
-| Comercial | Meus leads; Novas oportunidades; Responder cliente; Atualizar oportunidade; Transferir |
+| Perfil              | Menu interno                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| Comercial           | Meus leads; Novas oportunidades; Responder cliente; Atualizar oportunidade; Transferir            |
 | Assistência Técnica | Meus chamados; Fila técnica autorizada; Ver anexos; Responder cliente; Registrar ação; Transferir |
-| Plantão | Alertas críticos; Confirmar P1/P2; Meus chamados; Acionar backup; Registrar ação |
-| Backup | Casos escalados; Assumir; Indisponibilidade; Ver resumo; Responder cliente |
-| Coordenação | Fila técnica; P1/P2 pendentes; Designar responsável; Transferir; Histórico; Encerrar |
-| Administração | Equipes; Números autorizados; Escalas; Backups; Auditoria; Incidentes |
+| Plantão             | Alertas críticos; Confirmar P1/P2; Meus chamados; Acionar backup; Registrar ação                  |
+| Backup              | Casos escalados; Assumir; Indisponibilidade; Ver resumo; Responder cliente                        |
+| Coordenação         | Fila técnica; P1/P2 pendentes; Designar responsável; Transferir; Histórico; Encerrar              |
+| Administração       | Equipes; Números autorizados; Escalas; Backups; Auditoria; Incidentes                             |
 
 ## Fluxos operacionais
 
@@ -195,13 +195,13 @@ O cliente nunca recebe o número pessoal do colaborador. O histórico armazena p
 
 O bot aceita mídia do cliente e cria uma cópia privada associada ao protocolo. Para a equipe autorizada, o bot pode enviar o arquivo diretamente na conversa interna ou um link temporário, sem acesso público.
 
-| Tipo recebido | Tratamento no piloto |
-|---|---|
-| Texto | Triagem e resumo automatizados |
-| Imagem/foto | Leitura visual para contexto; arquivo preservado |
-| Áudio | Transcrição; áudio original preservado |
-| PDF/DOCX/planilha | Extração de texto e leitura visual quando necessário |
-| Vídeo | Áudio e quadros selecionados para triagem; arquivo original preservado |
+| Tipo recebido     | Tratamento no piloto                                                   |
+| ----------------- | ---------------------------------------------------------------------- |
+| Texto             | Triagem e resumo automatizados                                         |
+| Imagem/foto       | Leitura visual para contexto; arquivo preservado                       |
+| Áudio             | Transcrição; áudio original preservado                                 |
+| PDF/DOCX/planilha | Extração de texto e leitura visual quando necessário                   |
+| Vídeo             | Áudio e quadros selecionados para triagem; arquivo original preservado |
 
 Arquivos ilegíveis, protegidos por senha, acima do limite ou de tipo não permitido são marcados para análise humana. O bot não inventa conteúdo nem diagnóstico técnico.
 

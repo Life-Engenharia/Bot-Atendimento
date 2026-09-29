@@ -18,25 +18,23 @@ Cliente
 
 ### Princípio técnico
 
-
 | Decisão                | Implementação no piloto                                                                                                                |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Escolha de rota        | Botões/listas: `Contratar serviço ou orçamento` ou `Já sou cliente Life e preciso de assistência`; não depender da IA.              |
+| Escolha de rota        | Botões/listas: `Contratar serviço ou orçamento` ou `Já sou cliente Life e preciso de assistência`; não depender da IA.                 |
 | Perguntas obrigatórias | Máquina de estados salva cada campo e retoma exatamente de onde parou.                                                                 |
 | Prioridade             | Regras explícitas sugerem P1-P4; uma pessoa confirma sempre P1/P2 e qualquer caso ambíguo.                                             |
 | IA                     | Reescreve respostas aprovadas, resume dados e interpreta descrição livre. Não diagnostica, não promete prazo e não aciona equipamento. |
-| Integração Ploomes     | Criar ou atualizar somente leads e oportunidades comerciais; atendimento técnico fica na fila humana nesta primeira fase.             |
+| Integração Ploomes     | Criar ou atualizar somente leads e oportunidades comerciais; atendimento técnico fica na fila humana nesta primeira fase.              |
 | Segurança              | Handoff para humano em urgência, mensagem incompreensível, silêncio, falha de integração ou pedido do cliente.                         |
 
 ### APIs da primeira fase
 
-| API | Componente utilizado | Limite no piloto |
-| --- | --- | --- |
-| Meta WhatsApp Cloud API | Messages API e Webhooks | Mensagens, anexos e eventos do canal oficial. |
-| OpenAI | Responses API | Interpretação de texto livre, extração de campos e resumo; sem diagnóstico ou definição de risco. |
-| Ploomes | API de leads e oportunidades | Apenas rotas comerciais e assistência avulsa sem contrato. |
-| Backend Life | API Fastify interna | Fluxo, protocolo, regras P1-P4, roteamento e escalonamento. |
-
+| API                     | Componente utilizado         | Limite no piloto                                                                                  |
+| ----------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| Meta WhatsApp Cloud API | Messages API e Webhooks      | Mensagens, anexos e eventos do canal oficial.                                                     |
+| OpenAI                  | Responses API                | Interpretação de texto livre, extração de campos e resumo; sem diagnóstico ou definição de risco. |
+| Ploomes                 | API de leads e oportunidades | Apenas rotas comerciais e assistência avulsa sem contrato.                                        |
+| Backend Life            | API Fastify interna          | Fluxo, protocolo, regras P1-P4, roteamento e escalonamento.                                       |
 
 ## Estados da conversa
 
@@ -95,19 +93,17 @@ O texto livre também pode ser entendido pela IA, mas a resposta deve pedir conf
 
 Fazer uma pergunta por vez e aceitar resposta livre. Pular apenas campos já conhecidos e confirmados.
 
-
-| Campo               | Pergunta ao cliente                                                                   | Obrigatório | Validação                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------- |
-| Serviço             | “Qual serviço você procura?”                                                          | Sim         | Uma opção da lista ou texto livre.                                            |
-| Nome                | “Qual é o seu nome?”                                                                  | Sim         | Texto não vazio.                                                              |
-| Empresa/instituição | “Qual é a empresa ou instituição?”                                                    | Sim         | Texto não vazio.                                                              |
-| Cidade e unidade    | “Em qual cidade e unidade será o atendimento?”                                        | Sim         | Texto não vazio.                                                              |
-| Telefone            | “Qual telefone devemos usar para retorno?”                                            | Sim         | Confirmar o número do WhatsApp ou coletar outro.                              |
-| E-mail              | “Qual e-mail devemos usar para contato? Se preferir, pode pular esta etapa.”          | Não         | Recomendado; validar formato básico quando informado.                         |
-| Prazo/urgência      | “Para quando você precisa desse serviço?”                                             | Sim         | Opções: urgente / até 7 dias / neste mês / ainda estou avaliando.             |
-| Necessidade         | “Conte brevemente o que você precisa.”                                                | Sim         | Texto livre de até 1.000 caracteres.                                          |
-| Anexo               | “Se desejar, envie foto, documento ou especificação. Caso contrário, digite *pular*.” | Não         | Armazenar URL/ID do arquivo e tipo.                                           |
-
+| Campo               | Pergunta ao cliente                                                                   | Obrigatório | Validação                                                         |
+| ------------------- | ------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------- |
+| Serviço             | “Qual serviço você procura?”                                                          | Sim         | Uma opção da lista ou texto livre.                                |
+| Nome                | “Qual é o seu nome?”                                                                  | Sim         | Texto não vazio.                                                  |
+| Empresa/instituição | “Qual é a empresa ou instituição?”                                                    | Sim         | Texto não vazio.                                                  |
+| Cidade e unidade    | “Em qual cidade e unidade será o atendimento?”                                        | Sim         | Texto não vazio.                                                  |
+| Telefone            | “Qual telefone devemos usar para retorno?”                                            | Sim         | Confirmar o número do WhatsApp ou coletar outro.                  |
+| E-mail              | “Qual e-mail devemos usar para contato? Se preferir, pode pular esta etapa.”          | Não         | Recomendado; validar formato básico quando informado.             |
+| Prazo/urgência      | “Para quando você precisa desse serviço?”                                             | Sim         | Opções: urgente / até 7 dias / neste mês / ainda estou avaliando. |
+| Necessidade         | “Conte brevemente o que você precisa.”                                                | Sim         | Texto livre de até 1.000 caracteres.                              |
+| Anexo               | “Se desejar, envie foto, documento ou especificação. Caso contrário, digite _pular_.” | Não         | Armazenar URL/ID do arquivo e tipo.                               |
 
 ### Saída comercial
 
@@ -143,28 +139,25 @@ Antes da coleta, enviar:
 
 ### Perguntas técnicas, na ordem ideal
 
-
-| Etapa       | Campo                   | Pergunta ao cliente                                                                           | Obrigatório                     |
-| ----------- | ----------------------- | --------------------------------------------------------------------------------------------- | ------------------------------- |
-| Identificar | Nome/empresa            | “Informe seu nome e empresa/instituição.”                                                     | Sim                             |
-| Identificar | Unidade e contato local | “Qual unidade/local e quem é o contato no local?”                                             | Sim                             |
-| Identificar | Contrato                | “Há contrato ativo ou este equipamento já foi atendido pela Life? Se souber, informe o número.” | Sim, aceitar “não sei”        |
-| Localizar   | Equipamento             | “Qual é o equipamento afetado?”                                                               | Sim                             |
-| Localizar   | Fabricante/modelo       | “Informe fabricante e modelo, se disponíveis.”                                                | Sim, aceitar “não identificado” |
-| Localizar   | Patrimônio/série        | “Há número de patrimônio ou série?”                                                           | Não                             |
-| Entender    | Sintoma                 | “Descreva o que está acontecendo.”                                                            | Sim                             |
-| Entender    | Alarme                  | “Há código ou mensagem de alarme? Se houver, envie uma foto do painel.”                       | Não                             |
-| Entender    | Início/frequência       | “Quando começou e acontece sempre ou de forma intermitente?”                                  | Sim                             |
-| Impacto     | Operação                | “O equipamento está parado totalmente, parcialmente ou funcionando?”                          | Sim                             |
-| Impacto     | Contingência            | “Existe equipamento alternativo ou plano de contingência?”                                    | Sim                             |
-| Impacto     | Risco                   | “Há risco para pessoas, sangue, medicamentos ou uma operação essencial?”                      | Sim                             |
-| Evidências  | Arquivos                | “Envie fotos ou um vídeo curto do equipamento, painel/alarme e local, se for seguro fazê-lo.” | Não                             |
-
+| Etapa       | Campo                   | Pergunta ao cliente                                                                             | Obrigatório                     |
+| ----------- | ----------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------- |
+| Identificar | Nome/empresa            | “Informe seu nome e empresa/instituição.”                                                       | Sim                             |
+| Identificar | Unidade e contato local | “Qual unidade/local e quem é o contato no local?”                                               | Sim                             |
+| Identificar | Contrato                | “Há contrato ativo ou este equipamento já foi atendido pela Life? Se souber, informe o número.” | Sim, aceitar “não sei”          |
+| Localizar   | Equipamento             | “Qual é o equipamento afetado?”                                                                 | Sim                             |
+| Localizar   | Fabricante/modelo       | “Informe fabricante e modelo, se disponíveis.”                                                  | Sim, aceitar “não identificado” |
+| Localizar   | Patrimônio/série        | “Há número de patrimônio ou série?”                                                             | Não                             |
+| Entender    | Sintoma                 | “Descreva o que está acontecendo.”                                                              | Sim                             |
+| Entender    | Alarme                  | “Há código ou mensagem de alarme? Se houver, envie uma foto do painel.”                         | Não                             |
+| Entender    | Início/frequência       | “Quando começou e acontece sempre ou de forma intermitente?”                                    | Sim                             |
+| Impacto     | Operação                | “O equipamento está parado totalmente, parcialmente ou funcionando?”                            | Sim                             |
+| Impacto     | Contingência            | “Existe equipamento alternativo ou plano de contingência?”                                      | Sim                             |
+| Impacto     | Risco                   | “Há risco para pessoas, sangue, medicamentos ou uma operação essencial?”                        | Sim                             |
+| Evidências  | Arquivos                | “Envie fotos ou um vídeo curto do equipamento, painel/alarme e local, se for seguro fazê-lo.”   | Não                             |
 
 ### Regras de prioridade sugerida
 
 Estas regras precisam estar no código, com o resultado marcado como **sugestão**:
-
 
 | Prioridade       | Quando sugerir                                                                                                         | Ação automática                                                                                |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -172,7 +165,6 @@ Estas regras precisam estar no código, com o resultado marcado como **sugestão
 | P2 - Alta        | Equipamento parado ou falha relevante, com alternativa temporária ou contingência limitada.                            | Encaminhar prioritariamente e exigir retorno humano rápido.                                    |
 | P3 - Normal      | Falha parcial, desempenho reduzido ou solicitação sem interrupção crítica.                                             | Entrar na fila regular conforme contrato e disponibilidade.                                    |
 | P4 - Programável | Dúvida, ajuste, preventiva, visita programada ou demanda administrativa.                                               | Encaminhar para agendamento/planejamento.                                                      |
-
 
 Se uma resposta for vaga, contraditória ou colocar o caso entre dois níveis, atribuir provisoriamente o nível mais alto e acionar validação humana. A IA não pode reduzir prioridade nem concluir que não existe risco.
 
@@ -224,11 +216,11 @@ Encaminhar imediatamente para `HANDOFF_HUMANO` quando ocorrer qualquer condiçã
 
 Cada destino deve ter responsável principal, backup, horário e prazo de confirmação cadastrados. A matriz mínima contém: Comercial, Técnico regular, Plantão P1/P2 e Contingência.
 
-| Prioridade | Confirmação humana proposta | Escalonamento |
-| --- | --- | --- |
-| P1 | Até 5 minutos, sujeito à aprovação da Life | Sem confirmação, acionar backup; persistindo a falha, fila de contingência. |
-| P2 | Até 15 minutos, sujeito à aprovação da Life | Sem confirmação, acionar backup e registrar evento. |
-| P3/P4/Comercial | Conforme horário e SLA operacional aprovado | Encaminhar ao responsável ou fila de contingência fora do horário. |
+| Prioridade      | Confirmação humana proposta                 | Escalonamento                                                               |
+| --------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
+| P1              | Até 5 minutos, sujeito à aprovação da Life  | Sem confirmação, acionar backup; persistindo a falha, fila de contingência. |
+| P2              | Até 15 minutos, sujeito à aprovação da Life | Sem confirmação, acionar backup e registrar evento.                         |
+| P3/P4/Comercial | Conforme horário e SLA operacional aprovado | Encaminhar ao responsável ou fila de contingência fora do horário.          |
 
 O sistema registra data/hora de envio, confirmação, tentativa de escalonamento e destinatário final. Os nomes, telefones, backups, horários e SLAs precisam ser definidos nominalmente antes da liberação.
 
@@ -261,7 +253,6 @@ Painel de indicadores gerenciais, gráficos e relatórios avançados ficam para 
 
 ### Tabelas mínimas
 
-
 | Entidade              | Campos principais                                                                                      |
 | --------------------- | ------------------------------------------------------------------------------------------------------ |
 | `contacts`            | telefone, nome, empresa, e-mail, consentimento, data de consentimento.                                 |
@@ -272,18 +263,17 @@ Painel de indicadores gerenciais, gráficos e relatórios avançados ficam para 
 | `handoffs`            | motivo, fila, destinatário, data de envio, data de confirmação, SLA.                                   |
 | `audit_events`        | mudança de prioridade, fluxo, responsável e versão das regras.                                         |
 
-
 ### Governança de dados e operação
 
-| Tema | Regra inicial para validação |
-| --- | --- |
-| Banco | Supabase Pro com PostgreSQL gerenciado; escolhido por consistência relacional, backups, armazenamento de anexos e controle de acesso. |
-| Conversas e protocolos | Retenção de 180 dias, salvo obrigação contratual ou legal. |
-| Anexos | Retenção de 90 dias, salvo necessidade técnica, operacional ou contratual. |
-| Acesso | Perfis de administrador, comercial, técnico e consulta; menor privilégio e auditoria de ações. |
-| Backups | Retenção mínima de 30 dias e teste periódico de restauração. |
-| Ambientes | Homologação e produção separados, com credenciais e dados de teste isolados. |
-| Alertas | Integrações falhas, P1/P2 sem confirmação, indisponibilidade e consumo acima do orçamento de Meta, OpenAI e Supabase. |
+| Tema                   | Regra inicial para validação                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Banco                  | Supabase Pro com PostgreSQL gerenciado; escolhido por consistência relacional, backups, armazenamento de anexos e controle de acesso. |
+| Conversas e protocolos | Retenção de 180 dias, salvo obrigação contratual ou legal.                                                                            |
+| Anexos                 | Retenção de 90 dias, salvo necessidade técnica, operacional ou contratual.                                                            |
+| Acesso                 | Perfis de administrador, comercial, técnico e consulta; menor privilégio e auditoria de ações.                                        |
+| Backups                | Retenção mínima de 30 dias e teste periódico de restauração.                                                                          |
+| Ambientes              | Homologação e produção separados, com credenciais e dados de teste isolados.                                                          |
+| Alertas                | Integrações falhas, P1/P2 sem confirmação, indisponibilidade e consumo acima do orçamento de Meta, OpenAI e Supabase.                 |
 
 ### Integração com Ploomes
 
@@ -293,14 +283,12 @@ Toda chamada externa deve ter: chave de idempotência, registro de tentativa, st
 
 ## Implantação em quatro semanas
 
-
 | Semana                | Entrega e critério de saída                                                                                                                       |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 - Regras            | Aprovar perguntas, serviços, prioridades, horários, responsáveis, plantão e mensagens de segurança.                                               |
 | 2 - Protótipo         | Configurar Cloud API, banco, fluxo, protocolo, filas humanas e contingência; deixar Ploomes inicialmente opcional.                                |
 | 3 - Testes internos   | Executar pelo menos 20 cenários, incluindo P1, P2, comercial, sem contrato, dados incompletos, anexos, humano, falha de integração e duplicidade. |
-| 4 - Piloto controlado | Liberar para 5 a 10 clientes selecionados, revisar diariamente e só ampliar após estabilidade e retorno humano comprovado.                       |
-
+| 4 - Piloto controlado | Liberar para 5 a 10 clientes selecionados, revisar diariamente e só ampliar após estabilidade e retorno humano comprovado.                        |
 
 ## Indicadores do painel mínimo
 

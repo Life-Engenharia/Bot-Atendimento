@@ -1,4 +1,4 @@
-import { InMemoryAuditLog } from "../../audit/audit-log.js";
+import { InMemoryAuditLog } from '../../audit/audit-log.js';
 
 export type IncomingMessage = {
   id: string;
@@ -32,9 +32,9 @@ export class WebhookProcessor {
       processed += 1;
       acceptedMessages.push(message);
       this.auditLog.append({
-        event: "webhook.message_received",
-        actor: "meta",
-        payload: { messageId: message.id, from: message.from, hasText: Boolean(message.text) }
+        event: 'webhook.message_received',
+        actor: 'meta',
+        payload: { messageId: message.id, from: message.from, hasText: Boolean(message.text) },
       });
     }
 

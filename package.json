@@ -9,7 +9,21 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:check": "node scripts/supabase.mjs check",
+    "db:link": "node scripts/supabase.mjs link",
+    "db:plan": "node scripts/supabase.mjs plan",
+    "db:push": "node scripts/supabase.mjs push",
+    "db:list": "node scripts/supabase.mjs list",
+    "db:test": "supabase test db",
+    "simulate:commercial": "tsx scripts/simulate-whatsapp.ts",
+    "simulate:human": "tsx scripts/simulate-whatsapp.ts --human",
+    "simulate:memory": "tsx scripts/simulate-whatsapp.ts --memory",
+    "meta:check": "tsx scripts/check-meta-connection.ts",
+    "meta:send-test": "tsx scripts/send-meta-test.ts",
+    "meta:send-template": "tsx scripts/send-meta-template.ts"
   },
   "dependencies": {
     "@fastify/swagger": "^9.9.0",
@@ -19,6 +33,8 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "prettier": "^3.9.9",
+    "supabase": "^2.118.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

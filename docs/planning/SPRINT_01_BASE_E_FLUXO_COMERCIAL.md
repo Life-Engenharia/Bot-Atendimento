@@ -19,13 +19,13 @@ Ao final, o time consegue enviar uma sequência de mensagens simuladas para o we
 
 ## Plano diário
 
-| Dia | Horas | Entrega | Critério de aceite |
-| --- | ---: | --- | --- |
-| 1 | 4 h | Consolidar contratos de entrada e saída do webhook, estados da conversa e formato de mensagem de resposta. | Um contrato de payload de teste cobre criação, retomada e duplicidade. |
-| 2 | 4 h | Ligar o webhook ao serviço de conversa comercial em memória. | A primeira mensagem cria ou retoma conversa por telefone e devolve consentimento/menu. |
-| 3 | 4 h | Implementar coleta comercial por mensagem, revisão e confirmação. | Campos obrigatórios são solicitados um por vez; resumo só aparece quando a coleta está completa. |
-| 4 | 4 h | Criar protocolo, fila comercial local e eventos de auditoria de ponta a ponta. | Confirmação cria um único protocolo e um evento auditável; redelivery não repete o efeito. |
-| 5 | 4 h | Cobrir cenários de erro, revisar documentação e demonstrar o fluxo. | Testes de sucesso, duplicidade, entrada inválida, retomada e confirmação passam. |
+| Dia | Horas | Entrega                                                                                                    | Critério de aceite                                                                               |
+| --- | ----: | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 1   |   4 h | Consolidar contratos de entrada e saída do webhook, estados da conversa e formato de mensagem de resposta. | Um contrato de payload de teste cobre criação, retomada e duplicidade.                           |
+| 2   |   4 h | Ligar o webhook ao serviço de conversa comercial em memória.                                               | A primeira mensagem cria ou retoma conversa por telefone e devolve consentimento/menu.           |
+| 3   |   4 h | Implementar coleta comercial por mensagem, revisão e confirmação.                                          | Campos obrigatórios são solicitados um por vez; resumo só aparece quando a coleta está completa. |
+| 4   |   4 h | Criar protocolo, fila comercial local e eventos de auditoria de ponta a ponta.                             | Confirmação cria um único protocolo e um evento auditável; redelivery não repete o efeito.       |
+| 5   |   4 h | Cobrir cenários de erro, revisar documentação e demonstrar o fluxo.                                        | Testes de sucesso, duplicidade, entrada inválida, retomada e confirmação passam.                 |
 
 ## Backlog priorizado
 
@@ -53,12 +53,12 @@ Ao final, o time consegue enviar uma sequência de mensagens simuladas para o we
 
 ## Riscos e dependências
 
-| Item | Impacto | Tratamento nesta sprint |
-| --- | --- | --- |
-| Texto de menu e perguntas ainda sujeito à aprovação da Life. | Pode exigir ajuste de mensagens. | Deixar mensagens em um módulo configurável e validar antes da integração externa. |
-| Matriz nominal, horários e SLA ainda não definidos. | Bloqueia roteamento real e escalonamento. | Usar fila comercial simulada; não implementar P1/P2. |
-| Contas externas ainda indisponíveis. | Bloqueia integração real. | Usar adaptadores falsos e contratos testáveis. |
-| Retenção/LGPD pendente. | Bloqueia produção. | Não usar dados reais de clientes em desenvolvimento. |
+| Item                                                         | Impacto                                   | Tratamento nesta sprint                                                           |
+| ------------------------------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------- |
+| Texto de menu e perguntas ainda sujeito à aprovação da Life. | Pode exigir ajuste de mensagens.          | Deixar mensagens em um módulo configurável e validar antes da integração externa. |
+| Matriz nominal, horários e SLA ainda não definidos.          | Bloqueia roteamento real e escalonamento. | Usar fila comercial simulada; não implementar P1/P2.                              |
+| Contas externas ainda indisponíveis.                         | Bloqueia integração real.                 | Usar adaptadores falsos e contratos testáveis.                                    |
+| Retenção/LGPD pendente.                                      | Bloqueia produção.                        | Não usar dados reais de clientes em desenvolvimento.                              |
 
 ## Demonstração de fim de sprint
 

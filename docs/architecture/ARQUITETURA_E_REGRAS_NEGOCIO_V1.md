@@ -38,16 +38,16 @@ Fastify API - Cloud Run
           `--> Google Secret Manager / Cloud Logging
 ```
 
-| Camada | Decisão | Responsabilidade |
-| --- | --- | --- |
-| Canal | Meta WhatsApp Cloud API | Receber eventos e enviar mensagens pelo número oficial. |
-| Aplicação | Node.js, TypeScript e Fastify em Docker | Aplicar fluxos, regras, permissões e integrações. |
-| Execução | Google Cloud Run, `southamerica-east1` | HTTPS, escala sob demanda e ambiente separado por estágio. |
-| Dados | Supabase Pro / PostgreSQL | Dados relacionais, protocolo, fila, auditoria e permissões. |
-| Arquivos | Supabase Storage privado | Guardar anexos; acesso apenas por URL temporária autorizada. |
-| IA | OpenAI Responses API | Classificar texto livre, extrair campos e gerar resumo sem decidir fluxo crítico. |
-| CRM | Ploomes API | Criar/atualizar contato e oportunidade somente nas rotas comerciais. |
-| Segredos e logs | Secret Manager e Cloud Logging | Credenciais fora do código e rastreabilidade operacional. |
+| Camada          | Decisão                                 | Responsabilidade                                                                  |
+| --------------- | --------------------------------------- | --------------------------------------------------------------------------------- |
+| Canal           | Meta WhatsApp Cloud API                 | Receber eventos e enviar mensagens pelo número oficial.                           |
+| Aplicação       | Node.js, TypeScript e Fastify em Docker | Aplicar fluxos, regras, permissões e integrações.                                 |
+| Execução        | Google Cloud Run, `southamerica-east1`  | HTTPS, escala sob demanda e ambiente separado por estágio.                        |
+| Dados           | Supabase Pro / PostgreSQL               | Dados relacionais, protocolo, fila, auditoria e permissões.                       |
+| Arquivos        | Supabase Storage privado                | Guardar anexos; acesso apenas por URL temporária autorizada.                      |
+| IA              | OpenAI Responses API                    | Classificar texto livre, extrair campos e gerar resumo sem decidir fluxo crítico. |
+| CRM             | Ploomes API                             | Criar/atualizar contato e oportunidade somente nas rotas comerciais.              |
+| Segredos e logs | Secret Manager e Cloud Logging          | Credenciais fora do código e rastreabilidade operacional.                         |
 
 ### 2.1 Limites arquiteturais
 
@@ -59,16 +59,16 @@ Fastify API - Cloud Run
 
 ## 3. Domínios e módulos da aplicação
 
-| Módulo | Responsabilidade | Não pode decidir |
-| --- | --- | --- |
-| `webhook` | Autenticar e normalizar eventos da Meta; deduplicar. | Rota, prioridade ou acesso. |
-| `conversation` | Manter estado, coletar campos, confirmar resumo e encerrar. | Diagnóstico e prioridade humana final. |
-| `triage` | Aplicar regras P1-P4 e gerar justificativa rastreável. | Reduzir risco indicado ou confirmar P1/P2. |
-| `routing` | Selecionar fila, principal, backup e contingência pela matriz de escala. | Alterar a matriz sem usuário autorizado. |
-| `handoff` | Criar alertas, registrar confirmações e escalar por SLA. | Encerrar caso crítico por silêncio. |
-| `internal-operations` | Menus e comandos privados por perfil. | Exibir caso sem autorização. |
-| `integrations` | Adaptadores Meta, Ploomes, OpenAI e Storage. | Atualizar chamado técnico no Ploomes. |
-| `audit` | Registrar fatos operacionais imutáveis e versão das regras. | Apagar ou editar fatos. |
+| Módulo                | Responsabilidade                                                         | Não pode decidir                           |
+| --------------------- | ------------------------------------------------------------------------ | ------------------------------------------ |
+| `webhook`             | Autenticar e normalizar eventos da Meta; deduplicar.                     | Rota, prioridade ou acesso.                |
+| `conversation`        | Manter estado, coletar campos, confirmar resumo e encerrar.              | Diagnóstico e prioridade humana final.     |
+| `triage`              | Aplicar regras P1-P4 e gerar justificativa rastreável.                   | Reduzir risco indicado ou confirmar P1/P2. |
+| `routing`             | Selecionar fila, principal, backup e contingência pela matriz de escala. | Alterar a matriz sem usuário autorizado.   |
+| `handoff`             | Criar alertas, registrar confirmações e escalar por SLA.                 | Encerrar caso crítico por silêncio.        |
+| `internal-operations` | Menus e comandos privados por perfil.                                    | Exibir caso sem autorização.               |
+| `integrations`        | Adaptadores Meta, Ploomes, OpenAI e Storage.                             | Atualizar chamado técnico no Ploomes.      |
+| `audit`               | Registrar fatos operacionais imutáveis e versão das regras.              | Apagar ou editar fatos.                    |
 
 ### 3.1 Estrutura de pastas proposta
 
@@ -147,16 +147,16 @@ INICIADA -> CONSENTIMENTO -> ESCOLHA_ROTA
   -> HANDOFF_HUMANO -> HUMANO -> ENCERRADA
 ```
 
-| Estado | Entrada | Saída permitida | Invariante |
-| --- | --- | --- | --- |
-| `INICIADA` | primeira mensagem válida | `CONSENTIMENTO` | cria/recupera conversa, sem protocolo ainda. |
-| `CONSENTIMENTO` | mensagem de abertura | `ESCOLHA_ROTA`, `HANDOFF_HUMANO` | sem aceite, não coleta dados. |
-| `ESCOLHA_ROTA` | menu ou texto livre confirmado | fluxo comercial, técnico ou humano | sempre apresenta opção de humano. |
-| `*_COLETA` | resposta a campo solicitado | mesmo estado, revisão ou humano | uma pergunta por vez; não perde campos confirmados. |
-| `*_REVISAO` | resumo completo | fila correspondente ou coleta | só cria encaminhamento após confirmação explícita. |
-| `FILA_*` | protocolo encaminhado | `HUMANO` | não envia novas respostas automáticas além de confirmações do sistema. |
-| `HANDOFF_HUMANO` | evento de escape | `HUMANO` | bot para de responder automaticamente. |
-| `ENCERRADA` | ação humana autorizada | `INICIADA` para nova demanda | mantém histórico e auditoria. |
+| Estado           | Entrada                        | Saída permitida                    | Invariante                                                             |
+| ---------------- | ------------------------------ | ---------------------------------- | ---------------------------------------------------------------------- |
+| `INICIADA`       | primeira mensagem válida       | `CONSENTIMENTO`                    | cria/recupera conversa, sem protocolo ainda.                           |
+| `CONSENTIMENTO`  | mensagem de abertura           | `ESCOLHA_ROTA`, `HANDOFF_HUMANO`   | sem aceite, não coleta dados.                                          |
+| `ESCOLHA_ROTA`   | menu ou texto livre confirmado | fluxo comercial, técnico ou humano | sempre apresenta opção de humano.                                      |
+| `*_COLETA`       | resposta a campo solicitado    | mesmo estado, revisão ou humano    | uma pergunta por vez; não perde campos confirmados.                    |
+| `*_REVISAO`      | resumo completo                | fila correspondente ou coleta      | só cria encaminhamento após confirmação explícita.                     |
+| `FILA_*`         | protocolo encaminhado          | `HUMANO`                           | não envia novas respostas automáticas além de confirmações do sistema. |
+| `HANDOFF_HUMANO` | evento de escape               | `HUMANO`                           | bot para de responder automaticamente.                                 |
+| `ENCERRADA`      | ação humana autorizada         | `INICIADA` para nova demanda       | mantém histórico e auditoria.                                          |
 
 ### 4.2 Protocolo operacional
 
@@ -168,37 +168,37 @@ Uma transferência retorna o protocolo a `AGUARDANDO_CONFIRMACAO`. Somente Coord
 
 ### 5.1 Roteamento e coleta
 
-| ID | Regra | Resultado obrigatório |
-| --- | --- | --- |
-| RN-01 | A conversa inicia com identificação de assistente virtual e consentimento. | Recusa encerra a coleta e encaminha ao canal humano. |
-| RN-02 | Menu oferece Comercial, Assistência Life e Humano. | Texto livre exige confirmação da rota antes da coleta. |
-| RN-03 | Comercial coleta serviço, nome, empresa, cidade/unidade, telefone, prazo e necessidade; e-mail e anexo são opcionais. | Gera resumo e pede confirmação. |
-| RN-04 | Assistência coleta identificação, unidade, vínculo Life, equipamento, sintomas, impacto, contingência e risco. | Exibe a mensagem de segurança antes da coleta. |
-| RN-05 | Cliente sem contrato ou histórico Life não reinicia a conversa. | Conserva dados e abre oportunidade comercial de assistência avulsa. |
-| RN-06 | O protocolo é criado antes de notificar uma fila. | Todo alerta, mensagem e ação referencia o protocolo. |
-| RN-07 | "Falar com uma pessoa" e equivalentes têm precedência sobre qualquer estado. | Cria handoff e pausa resposta automática. |
-| RN-08 | Dados incompreensíveis após uma tentativa de esclarecimento são caso humano. | Registra motivo `BAIXA_CONFIANCA`. |
+| ID    | Regra                                                                                                                 | Resultado obrigatório                                               |
+| ----- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| RN-01 | A conversa inicia com identificação de assistente virtual e consentimento.                                            | Recusa encerra a coleta e encaminha ao canal humano.                |
+| RN-02 | Menu oferece Comercial, Assistência Life e Humano.                                                                    | Texto livre exige confirmação da rota antes da coleta.              |
+| RN-03 | Comercial coleta serviço, nome, empresa, cidade/unidade, telefone, prazo e necessidade; e-mail e anexo são opcionais. | Gera resumo e pede confirmação.                                     |
+| RN-04 | Assistência coleta identificação, unidade, vínculo Life, equipamento, sintomas, impacto, contingência e risco.        | Exibe a mensagem de segurança antes da coleta.                      |
+| RN-05 | Cliente sem contrato ou histórico Life não reinicia a conversa.                                                       | Conserva dados e abre oportunidade comercial de assistência avulsa. |
+| RN-06 | O protocolo é criado antes de notificar uma fila.                                                                     | Todo alerta, mensagem e ação referencia o protocolo.                |
+| RN-07 | "Falar com uma pessoa" e equivalentes têm precedência sobre qualquer estado.                                          | Cria handoff e pausa resposta automática.                           |
+| RN-08 | Dados incompreensíveis após uma tentativa de esclarecimento são caso humano.                                          | Registra motivo `BAIXA_CONFIANCA`.                                  |
 
 ### 5.2 Prioridade técnica sugerida
 
-| ID | Condição declarada na triagem | Prioridade sugerida | Ação do sistema |
-| --- | --- | --- | --- |
-| RN-10 | Risco a pessoas, sangue, medicamentos ou operação essencial **e** equipamento crítico parado sem contingência. | P1 | Alerta imediato para principal/plantão e confirmação humana. |
-| RN-11 | Equipamento parado ou falha relevante, com alternativa temporária ou contingência limitada. | P2 | Fila prioritária e confirmação humana rápida. |
-| RN-12 | Falha parcial, perda de desempenho ou ausência de interrupção crítica. | P3 | Fila técnica regular. |
-| RN-13 | Preventiva, ajuste, dúvida, visita programada ou demanda administrativa. | P4 | Fila de planejamento/agendamento. |
-| RN-14 | Resposta vaga, contraditória, caso entre níveis, urgência não classificada ou risco declarado. | Maior nível plausível | Handoff humano; IA jamais reduz a prioridade. |
-| RN-15 | P1 e P2 são somente sugestões até confirmação humana. | `priority_confirmed = null` até ação autorizada | Técnico/Plantão confirma recebimento; Coordenação pode ajustar prioridade. |
+| ID    | Condição declarada na triagem                                                                                  | Prioridade sugerida                             | Ação do sistema                                                            |
+| ----- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| RN-10 | Risco a pessoas, sangue, medicamentos ou operação essencial **e** equipamento crítico parado sem contingência. | P1                                              | Alerta imediato para principal/plantão e confirmação humana.               |
+| RN-11 | Equipamento parado ou falha relevante, com alternativa temporária ou contingência limitada.                    | P2                                              | Fila prioritária e confirmação humana rápida.                              |
+| RN-12 | Falha parcial, perda de desempenho ou ausência de interrupção crítica.                                         | P3                                              | Fila técnica regular.                                                      |
+| RN-13 | Preventiva, ajuste, dúvida, visita programada ou demanda administrativa.                                       | P4                                              | Fila de planejamento/agendamento.                                          |
+| RN-14 | Resposta vaga, contraditória, caso entre níveis, urgência não classificada ou risco declarado.                 | Maior nível plausível                           | Handoff humano; IA jamais reduz a prioridade.                              |
+| RN-15 | P1 e P2 são somente sugestões até confirmação humana.                                                          | `priority_confirmed = null` até ação autorizada | Técnico/Plantão confirma recebimento; Coordenação pode ajustar prioridade. |
 
 ### 5.3 Escalonamento
 
-| ID | Condição | Ação |
-| --- | --- | --- |
-| RN-20 | P1 sem confirmação do principal em 5 minutos **após aprovação da Life**. | Notifica backup; persistindo, contingência/Coordenação. |
-| RN-21 | P2 sem confirmação do principal em 15 minutos **após aprovação da Life**. | Notifica backup e registra a escalada. |
-| RN-22 | P3, P4 e comercial. | Seguem horário e SLA cadastrados; fora do horário usam contingência definida. |
-| RN-23 | Principal ou backup indisponível. | Registra indisponibilidade e avança ao próximo destino elegível. |
-| RN-24 | Falha de banco, Meta, Ploomes ou fila humana. | Mantém protocolo local quando possível, alerta operação e nunca confirma ação externa não concluída. |
+| ID    | Condição                                                                  | Ação                                                                                                 |
+| ----- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| RN-20 | P1 sem confirmação do principal em 5 minutos **após aprovação da Life**.  | Notifica backup; persistindo, contingência/Coordenação.                                              |
+| RN-21 | P2 sem confirmação do principal em 15 minutos **após aprovação da Life**. | Notifica backup e registra a escalada.                                                               |
+| RN-22 | P3, P4 e comercial.                                                       | Seguem horário e SLA cadastrados; fora do horário usam contingência definida.                        |
+| RN-23 | Principal ou backup indisponível.                                         | Registra indisponibilidade e avança ao próximo destino elegível.                                     |
+| RN-24 | Falha de banco, Meta, Ploomes ou fila humana.                             | Mantém protocolo local quando possível, alerta operação e nunca confirma ação externa não concluída. |
 
 ### 5.4 Segurança, comunicação e LGPD
 
@@ -211,30 +211,30 @@ Uma transferência retorna o protocolo a `AGUARDANDO_CONFIRMACAO`. Somente Coord
 
 ## 6. Permissões da operação interna
 
-| Perfil | Pode | Não pode |
-| --- | --- | --- |
-| Comercial | Assumir e transferir oportunidades, responder pelo canal oficial, atualizar estágio comercial. | Alterar prioridade técnica, escala ou fila técnica não transferida. |
-| Técnico | Assumir chamado, consultar dados autorizados, responder, registrar ação e transferir. | Alterar regra de prioridade ou rota comercial. |
-| Plantão | Confirmar/assumir P1/P2, acionar backup, registrar ação. | Acessar casos fora da cobertura autorizada. |
-| Backup | Receber escalonamentos, assumir ou declarar indisponibilidade. | Acessar a fila completa sem escalonamento. |
-| Coordenação | Designar, transferir, ajustar prioridade, monitorar SLA e encerrar. | Alterar auditoria. |
-| Administração | Cadastrar números, equipes, escalas, backups e permissões. | Acessar conteúdo sem necessidade operacional justificada. |
+| Perfil        | Pode                                                                                           | Não pode                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Comercial     | Assumir e transferir oportunidades, responder pelo canal oficial, atualizar estágio comercial. | Alterar prioridade técnica, escala ou fila técnica não transferida. |
+| Técnico       | Assumir chamado, consultar dados autorizados, responder, registrar ação e transferir.          | Alterar regra de prioridade ou rota comercial.                      |
+| Plantão       | Confirmar/assumir P1/P2, acionar backup, registrar ação.                                       | Acessar casos fora da cobertura autorizada.                         |
+| Backup        | Receber escalonamentos, assumir ou declarar indisponibilidade.                                 | Acessar a fila completa sem escalonamento.                          |
+| Coordenação   | Designar, transferir, ajustar prioridade, monitorar SLA e encerrar.                            | Alterar auditoria.                                                  |
+| Administração | Cadastrar números, equipes, escalas, backups e permissões.                                     | Acessar conteúdo sem necessidade operacional justificada.           |
 
 ## 7. Modelo de dados mínimo
 
-| Entidade | Campos essenciais | Regras de consistência |
-| --- | --- | --- |
-| `contacts` | id, telefone E.164, nome, empresa, e-mail, consentimento. | telefone único; consentimento datado. |
-| `conversations` | id, contact_id, route, state, protocol_id, assigned_user_id, timestamps. | uma conversa ativa por telefone/canal; transição de estado validada. |
-| `messages` | meta_message_id, conversation_id, direção, conteúdo, mídia, status. | `meta_message_id` único. |
-| `protocols` | número visível, tipo, status, prioridade sugerida/confirmada, responsável, backup. | número único e imutável. |
-| `commercial_requests` | protocolo, serviço, unidade, prazo, necessidade, ploomes_id, status. | somente em rota comercial ou assistência avulsa. |
-| `technical_tickets` | protocolo, contrato, equipamento, sintomas, impacto, contingência, risco, prioridade. | somente em rota técnica. |
-| `team_members` | telefone, perfil, equipe, ativo. | telefone único; membro inativo perde acesso. |
-| `coverage_rules` | fila, horário, principal, backup, contingência, SLA. | não ativa P1/P2 sem destinos válidos. |
-| `handoffs` | protocolo, motivo, fila, destino, enviado_em, confirmado_em, SLA. | cada tentativa preserva seu histórico. |
-| `attachments` | protocolo, storage_key, tipo, tamanho, retenção. | sem URL pública persistida. |
-| `audit_events` | ator, protocolo, evento, dados anterior/novo, versão_regra, data. | somente inserção. |
+| Entidade              | Campos essenciais                                                                     | Regras de consistência                                               |
+| --------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `contacts`            | id, telefone E.164, nome, empresa, e-mail, consentimento.                             | telefone único; consentimento datado.                                |
+| `conversations`       | id, contact_id, route, state, protocol_id, assigned_user_id, timestamps.              | uma conversa ativa por telefone/canal; transição de estado validada. |
+| `messages`            | meta_message_id, conversation_id, direção, conteúdo, mídia, status.                   | `meta_message_id` único.                                             |
+| `protocols`           | número visível, tipo, status, prioridade sugerida/confirmada, responsável, backup.    | número único e imutável.                                             |
+| `commercial_requests` | protocolo, serviço, unidade, prazo, necessidade, ploomes_id, status.                  | somente em rota comercial ou assistência avulsa.                     |
+| `technical_tickets`   | protocolo, contrato, equipamento, sintomas, impacto, contingência, risco, prioridade. | somente em rota técnica.                                             |
+| `team_members`        | telefone, perfil, equipe, ativo.                                                      | telefone único; membro inativo perde acesso.                         |
+| `coverage_rules`      | fila, horário, principal, backup, contingência, SLA.                                  | não ativa P1/P2 sem destinos válidos.                                |
+| `handoffs`            | protocolo, motivo, fila, destino, enviado_em, confirmado_em, SLA.                     | cada tentativa preserva seu histórico.                               |
+| `attachments`         | protocolo, storage_key, tipo, tamanho, retenção.                                      | sem URL pública persistida.                                          |
+| `audit_events`        | ator, protocolo, evento, dados anterior/novo, versão_regra, data.                     | somente inserção.                                                    |
 
 ## 8. Contratos externos essenciais
 
@@ -271,12 +271,12 @@ Uma transferência retorna o protocolo a `AGUARDANDO_CONFIRMACAO`. Somente Coord
 
 **Objetivo:** concluir a descoberta e deixar o contrato de implementação fechado em 12 a 16 horas estimadas, sem iniciar ainda integrações de produção.
 
-| Bloco | Esforço estimado | Entregável e critério de saída |
-| --- | ---: | --- |
-| Validar fluxo e mensagens | 3 h | Menu, textos e perguntas aprovados pela Life. |
-| Fechar matriz de operação | 3 h | Principal, backup, horário, fila e contingência por destino. |
-| Fechar dados e regras | 3 h | Campos, status, RN-01 a RN-35 e retenção validados. |
-| Preparar backlog técnico | 3 h | Migrations, endpoints, testes de fluxo e configuração de ambientes definidos. |
-| Revisão e ajustes | 0-4 h | Pendências registradas, escopo da etapa 2 confirmado. |
+| Bloco                     | Esforço estimado | Entregável e critério de saída                                                |
+| ------------------------- | ---------------: | ----------------------------------------------------------------------------- |
+| Validar fluxo e mensagens |              3 h | Menu, textos e perguntas aprovados pela Life.                                 |
+| Fechar matriz de operação |              3 h | Principal, backup, horário, fila e contingência por destino.                  |
+| Fechar dados e regras     |              3 h | Campos, status, RN-01 a RN-35 e retenção validados.                           |
+| Preparar backlog técnico  |              3 h | Migrations, endpoints, testes de fluxo e configuração de ambientes definidos. |
+| Revisão e ajustes         |            0-4 h | Pendências registradas, escopo da etapa 2 confirmado.                         |
 
 O primeiro código da etapa 2 deve ser somente a fundação: projeto TypeScript/Fastify, endpoint de saúde, validação de webhook, schema PostgreSQL inicial, deduplicação, auditoria e teste de uma conversa comercial simulada. Meta, Ploomes e OpenAI entram por adaptadores falsos em homologação até que as contas institucionais estejam disponíveis.

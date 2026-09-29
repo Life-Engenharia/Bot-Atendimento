@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+output/
+tmp/
+.git/
+.env*
+package-lock.json

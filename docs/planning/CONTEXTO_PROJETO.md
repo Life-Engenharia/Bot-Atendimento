@@ -46,14 +46,14 @@ Informações extraídas do Markdown `docs/planning/PLANO_EXECUCAO_PILOTO_LIFE_W
 - Arquitetura prevista: WhatsApp Cloud API, Node.js/TypeScript/Fastify, Cloud Run em São Paulo, Supabase/PostgreSQL, OpenAI Responses API, Ploomes e Secret Manager.
 - Há premissas a confirmar com a Life sobre menu, equipes, SLAs P1/P2, dados/LGPD, Ploomes e contas.
 
-| Etapa | Duração prevista | Esforço estimado |
-| --- | --- | --- |
-| Descoberta e regras | 1 semana | 12–16 h |
-| Base técnica | 1 semana | 18–24 h |
-| Fluxos e Ploomes comercial | 1 semana | 20–28 h |
-| Operação interna no WhatsApp | 1 semana | 22–30 h |
-| Testes e liberação | 1 semana | 16–22 h |
-| Total | 5 semanas | 88–120 h |
+| Etapa                        | Duração prevista | Esforço estimado |
+| ---------------------------- | ---------------- | ---------------- |
+| Descoberta e regras          | 1 semana         | 12–16 h          |
+| Base técnica                 | 1 semana         | 18–24 h          |
+| Fluxos e Ploomes comercial   | 1 semana         | 20–28 h          |
+| Operação interna no WhatsApp | 1 semana         | 22–30 h          |
+| Testes e liberação           | 1 semana         | 16–22 h          |
+| Total                        | 5 semanas        | 88–120 h         |
 
 ## Próximo ponto de retomada
 

@@ -10,11 +10,11 @@ export type AuditEvent = {
 export class InMemoryAuditLog {
   private readonly events: AuditEvent[] = [];
 
-  append(input: Omit<AuditEvent, "id" | "occurredAt">): AuditEvent {
+  append(input: Omit<AuditEvent, 'id' | 'occurredAt'>): AuditEvent {
     const event: AuditEvent = {
       ...input,
       id: crypto.randomUUID(),
-      occurredAt: new Date()
+      occurredAt: new Date(),
     };
 
     this.events.push(event);

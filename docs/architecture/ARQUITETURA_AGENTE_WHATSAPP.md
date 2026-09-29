@@ -31,16 +31,16 @@ O piloto inclui uma **interface operacional mínima** para a equipe: fila por pr
 
 ### Componentes
 
-| Componente | Responsabilidade |
-| --- | --- |
-| Meta WhatsApp Cloud API | Receber e enviar mensagens pelo canal oficial do WhatsApp. |
-| Webhook | Endpoint público que recebe os eventos de mensagens da Meta. |
-| Backend/orquestrador | Aplica regras do negócio, chama serviços externos e decide a resposta. |
-| Banco de dados | Guarda clientes, mensagens, status das conversas e auditoria. |
-| IA | Interpreta a intenção e redige respostas conforme a personalidade e regras. |
-| Base de conhecimento | Fonte de respostas sobre FAQ, serviços, catálogo, políticas e procedimentos. |
-| Integrações | Consulta ou atualiza CRM, agenda, pedidos ou estoque através de funções autorizadas. |
-| Painel humano | Permite visualizar e assumir uma conversa. |
+| Componente              | Responsabilidade                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| Meta WhatsApp Cloud API | Receber e enviar mensagens pelo canal oficial do WhatsApp.                           |
+| Webhook                 | Endpoint público que recebe os eventos de mensagens da Meta.                         |
+| Backend/orquestrador    | Aplica regras do negócio, chama serviços externos e decide a resposta.               |
+| Banco de dados          | Guarda clientes, mensagens, status das conversas e auditoria.                        |
+| IA                      | Interpreta a intenção e redige respostas conforme a personalidade e regras.          |
+| Base de conhecimento    | Fonte de respostas sobre FAQ, serviços, catálogo, políticas e procedimentos.         |
+| Integrações             | Consulta ou atualiza CRM, agenda, pedidos ou estoque através de funções autorizadas. |
+| Painel humano           | Permite visualizar e assumir uma conversa.                                           |
 
 ## Como deixar a conversa natural e segura
 
@@ -102,16 +102,16 @@ WhatsApp Cloud API
 
 Para começar com baixo custo e manter uma rota simples de crescimento, a recomendação principal é **Google Cloud Run + Supabase PostgreSQL + Node.js/Fastify + Meta Cloud API + OpenAI**. O backend é entregue como contêiner e pode escalar horizontalmente sem reescrever a aplicação; no início, o Cloud Run pode reduzir instâncias quando não há tráfego.
 
-| Camada | Sugestão inicial |
-| --- | --- |
-| Canal | Meta WhatsApp Cloud API |
-| Backend | Node.js + TypeScript com Fastify, em um contêiner Docker |
-| Hospedagem | Google Cloud Run (recomendado) |
-| Banco | Supabase Pro com PostgreSQL gerenciado |
-| IA | OpenAI API, chamada somente pelo backend |
-| Fila/cache | Começar sem Redis; adicionar Redis gerenciado + BullMQ quando houver maior concorrência ou tarefas assíncronas |
-| Atendimento humano | Bot operacional interno no WhatsApp, por número corporativo autorizado; painel web fica fora do piloto |
-| Observabilidade | Logs estruturados, alertas de erro e rastreamento por mensagem |
+| Camada             | Sugestão inicial                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Canal              | Meta WhatsApp Cloud API                                                                                        |
+| Backend            | Node.js + TypeScript com Fastify, em um contêiner Docker                                                       |
+| Hospedagem         | Google Cloud Run (recomendado)                                                                                 |
+| Banco              | Supabase Pro com PostgreSQL gerenciado                                                                         |
+| IA                 | OpenAI API, chamada somente pelo backend                                                                       |
+| Fila/cache         | Começar sem Redis; adicionar Redis gerenciado + BullMQ quando houver maior concorrência ou tarefas assíncronas |
+| Atendimento humano | Bot operacional interno no WhatsApp, por número corporativo autorizado; painel web fica fora do piloto         |
+| Observabilidade    | Logs estruturados, alertas de erro e rastreamento por mensagem                                                 |
 
 Fastify tende a ser uma escolha mais enxuta que um framework mais pesado para este MVP. O uso de Docker, PostgreSQL padrão e integrações por API evita aprisionamento relevante: se o custo ou a necessidade mudar, o backend pode migrar para outro provedor sem alterar a regra de negócio.
 
@@ -123,22 +123,22 @@ PostgreSQL foi escolhido porque o atendimento possui relações críticas: um pr
 
 ## Componentes de API da primeira fase
 
-| Componente | Uso no piloto |
-| --- | --- |
-| Meta WhatsApp Cloud API - Messages API | Enviar mensagens pelo número oficial e notificações internas autorizadas. |
-| Meta WhatsApp Cloud API - Webhooks | Receber mensagens, anexos e eventos de status. |
-| OpenAI Responses API | Interpretar texto livre, extrair campos e gerar resumo; não diagnostica nem define risco. |
-| Ploomes API | Criar ou atualizar somente leads e oportunidades comerciais. |
-| API interna Fastify | Aplicar fluxos, regras P1-P4, protocolo, roteamento e escalonamento. |
+| Componente                             | Uso no piloto                                                                             |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Meta WhatsApp Cloud API - Messages API | Enviar mensagens pelo número oficial e notificações internas autorizadas.                 |
+| Meta WhatsApp Cloud API - Webhooks     | Receber mensagens, anexos e eventos de status.                                            |
+| OpenAI Responses API                   | Interpretar texto livre, extrair campos e gerar resumo; não diagnostica nem define risco. |
+| Ploomes API                            | Criar ou atualizar somente leads e oportunidades comerciais.                              |
+| API interna Fastify                    | Aplicar fluxos, regras P1-P4, protocolo, roteamento e escalonamento.                      |
 
 ## Hospedagem
 
-| Cenário | Opções | Uso indicado |
-| --- | --- | --- |
-| MVP e início de produção | Google Cloud Run + Supabase | Baixo custo ocioso, HTTPS e escala automática; é a opção recomendada. |
-| Alternativa de custo fixo | VPS com Docker + PostgreSQL gerenciado | Pode custar menos com tráfego constante, mas exige atualizações, backups e monitoramento próprios. |
-| Produção em crescimento | Cloud Run + Redis gerenciado + PostgreSQL gerenciado | Escala os componentes que realmente precisam, sem migrar o backend. |
-| Alto volume/compliance | AWS, GCP ou Azure com serviços gerenciados | Operação crítica, mais equipe e requisitos rigorosos. |
+| Cenário                   | Opções                                               | Uso indicado                                                                                       |
+| ------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| MVP e início de produção  | Google Cloud Run + Supabase                          | Baixo custo ocioso, HTTPS e escala automática; é a opção recomendada.                              |
+| Alternativa de custo fixo | VPS com Docker + PostgreSQL gerenciado               | Pode custar menos com tráfego constante, mas exige atualizações, backups e monitoramento próprios. |
+| Produção em crescimento   | Cloud Run + Redis gerenciado + PostgreSQL gerenciado | Escala os componentes que realmente precisam, sem migrar o backend.                                |
+| Alto volume/compliance    | AWS, GCP ou Azure com serviços gerenciados           | Operação crítica, mais equipe e requisitos rigorosos.                                              |
 
 Para 100 clientes, a recomendação é **Meta Cloud API + Node.js/Fastify em Docker + Google Cloud Run + Supabase PostgreSQL + OpenAI**. Render e Railway continuam bons para protótipos muito rápidos, mas Cloud Run oferece uma transição mais direta para volumes maiores.
 
@@ -156,14 +156,14 @@ Para 100 clientes, a recomendação é **Meta Cloud API + Node.js/Fastify em Doc
 
 ### Retenção, acesso e continuidade
 
-| Tema | Regra inicial para validação |
-| --- | --- |
-| Conversas e protocolos | Reter por 180 dias, sujeito a obrigação contratual ou legal aplicável. |
-| Anexos | Reter por 90 dias, salvo necessidade operacional, técnica ou contratual. |
-| Backups | Reter por pelo menos 30 dias e testar restauração periodicamente. |
-| Acesso | Perfis separados para administração, comercial, técnico e consulta; princípio de menor privilégio. |
-| Ambientes | Homologação e produção separados, com credenciais, banco e número Meta de teste distintos. |
-| Alertas | Falhas de integração, P1/P2 sem confirmação, indisponibilidade e consumo de Meta/OpenAI/Supabase acima do orçamento. |
+| Tema                   | Regra inicial para validação                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Conversas e protocolos | Reter por 180 dias, sujeito a obrigação contratual ou legal aplicável.                                               |
+| Anexos                 | Reter por 90 dias, salvo necessidade operacional, técnica ou contratual.                                             |
+| Backups                | Reter por pelo menos 30 dias e testar restauração periodicamente.                                                    |
+| Acesso                 | Perfis separados para administração, comercial, técnico e consulta; princípio de menor privilégio.                   |
+| Ambientes              | Homologação e produção separados, com credenciais, banco e número Meta de teste distintos.                           |
+| Alertas                | Falhas de integração, P1/P2 sem confirmação, indisponibilidade e consumo de Meta/OpenAI/Supabase acima do orçamento. |
 
 ## Custos
 
@@ -179,15 +179,15 @@ O custo não é definido apenas pela quantidade de clientes, mas principalmente 
 
 Para transformar a estimativa em um orçamento concreto, foi considerado: **100 clientes ativos**, cada um recebendo em média **20 respostas automáticas por mês** (2.000 mensagens de saída no total), sem campanhas de marketing, sem imagens/áudios e com respostas curtas. Para converter itens cobrados em dólar, foi usado **US$ 1 = R$ 5,50**, apenas como premissa de orçamento; cartão, IOF, impostos, região e câmbio podem alterar o valor final.
 
-| Item | Cálculo do cenário | Estimativa mensal |
-| --- | --- | ---: |
-| WhatsApp Cloud API | 2.000 mensagens de serviço × R$ 0,035 | **R$ 70** a partir de outubro de 2026 |
-| Backend no Cloud Run | Cerca de 4.000 chamadas HTTP/mês (webhook + envio), processamento curto | **R$ 0 a R$ 5** |
-| Supabase/PostgreSQL Pro | US$ 25/mês × R$ 5,50 | **R$ 137,50** antes de IOF/impostos |
-| OpenAI — GPT-5 Mini | 3 milhões de tokens de entrada + 500 mil de saída | **R$ 9,63** antes de impostos |
-| Domínio `.com.br` | Renovação anual dividida por 12 | **R$ 4 a R$ 6** |
-| Logs/monitoramento | Cotas iniciais do provedor | **R$ 0** |
-| **Total técnico recorrente** | Sem CRM/painel pago e sem impostos | **aproximadamente R$ 221 a R$ 228/mês** |
+| Item                         | Cálculo do cenário                                                      |                       Estimativa mensal |
+| ---------------------------- | ----------------------------------------------------------------------- | --------------------------------------: |
+| WhatsApp Cloud API           | 2.000 mensagens de serviço × R$ 0,035                                   |   **R$ 70** a partir de outubro de 2026 |
+| Backend no Cloud Run         | Cerca de 4.000 chamadas HTTP/mês (webhook + envio), processamento curto |                         **R$ 0 a R$ 5** |
+| Supabase/PostgreSQL Pro      | US$ 25/mês × R$ 5,50                                                    |     **R$ 137,50** antes de IOF/impostos |
+| OpenAI — GPT-5 Mini          | 3 milhões de tokens de entrada + 500 mil de saída                       |           **R$ 9,63** antes de impostos |
+| Domínio `.com.br`            | Renovação anual dividida por 12                                         |                         **R$ 4 a R$ 6** |
+| Logs/monitoramento           | Cotas iniciais do provedor                                              |                                **R$ 0** |
+| **Total técnico recorrente** | Sem CRM/painel pago e sem impostos                                      | **aproximadamente R$ 221 a R$ 228/mês** |
 
 Com tributos, IOF e variação de câmbio, o orçamento prudente é **R$ 250 a R$ 300/mês**. Antes de 1º de outubro de 2026, se as respostas ainda se enquadrarem na regra vigente de mensagens de serviço gratuitas, o total pode ficar perto de **R$ 150/mês**, pois os R$ 70 do WhatsApp deixam de existir temporariamente.
 
@@ -220,11 +220,11 @@ Para o cenário de produção, a premissa é 2.000 respostas por mês, com médi
 
 ### Caminho de escala sem desperdício
 
-| Volume/situação | Mudança necessária |
-| --- | --- |
-| Até 100 clientes | Cloud Run, Supabase PostgreSQL, FAQ no banco e processamento direto no webhook. |
-| Mais mensagens simultâneas | Redis + BullMQ para desacoplar o webhook do processamento e evitar perdas/repetições. |
-| Muito conteúdo ou muitas consultas | Busca vetorial/RAG; manter PostgreSQL como fonte principal de dados. |
+| Volume/situação                     | Mudança necessária                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| Até 100 clientes                    | Cloud Run, Supabase PostgreSQL, FAQ no banco e processamento direto no webhook.            |
+| Mais mensagens simultâneas          | Redis + BullMQ para desacoplar o webhook do processamento e evitar perdas/repetições.      |
+| Muito conteúdo ou muitas consultas  | Busca vetorial/RAG; manter PostgreSQL como fonte principal de dados.                       |
 | Integrações críticas e equipe maior | Banco gerenciado com réplicas/backups, observabilidade centralizada e ambientes separados. |
 
 ## Plano de entrega recomendado
