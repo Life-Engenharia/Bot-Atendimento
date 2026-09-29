@@ -30,8 +30,8 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     dependencies.persistedMenuService ??
     (environment.SUPABASE_URL && environment.SUPABASE_API
       ? new PersistedMenuService(
-          new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API),
-        )
+        new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API),
+      )
       : undefined);
   const app = Fastify({ logger: environment.NODE_ENV !== 'test' });
   const openApiPath = fileURLToPath(new URL('../docs/api/openapi.yaml', import.meta.url));
