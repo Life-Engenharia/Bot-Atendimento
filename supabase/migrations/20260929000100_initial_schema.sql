@@ -1,3 +1,4 @@
+-- Baseline do piloto. Aplique somente após reconciliar bancos já existentes.
 create extension if not exists pgcrypto;
 
 create type conversation_route as enum ('commercial', 'technical', 'human');
