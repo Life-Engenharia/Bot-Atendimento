@@ -8,28 +8,28 @@ O contrato navegável da API do bot está em `docs/api/openapi.yaml`. A interfac
 
 ## Meta WhatsApp Cloud API
 
-| Direção | Contrato do bot | Regra |
-| --- | --- | --- |
-| Entrada | `GET /webhooks/whatsapp` | Devolve o desafio somente se `hub.verify_token` coincidir com o segredo configurado. |
+| Direção | Contrato do bot           | Regra                                                                                   |
+| ------- | ------------------------- | --------------------------------------------------------------------------------------- |
+| Entrada | `GET /webhooks/whatsapp`  | Devolve o desafio somente se `hub.verify_token` coincidir com o segredo configurado.    |
 | Entrada | `POST /webhooks/whatsapp` | O adaptador valida assinatura, normaliza o evento e deduplica pelo ID da mensagem Meta. |
-| Saída | Messages API | Envia mensagens apenas pelo número oficial da Life; salva ID e status de entrega. |
+| Saída   | Messages API              | Envia mensagens apenas pelo número oficial da Life; salva ID e status de entrega.       |
 
-A Cloud API requer portfólio Meta, conta WhatsApp Business e número comercial. O endpoint atual processa somente o payload de simulação; o adaptador oficial será criado na sprint de integração.
+A Cloud API requer portfólio Meta, conta WhatsApp Business e número comercial. O cliente de leitura em `src/infra/meta/whatsapp-cloud-client.ts` valida o token e o `Phone Number ID` com `npm run meta:check`. O adaptador em `src/infra/meta/whatsapp-cloud-adapter.ts` normaliza mensagens de texto do payload oficial e valida `X-Hub-Signature-256` a partir do corpo bruto; a ativação no endpoint depende do App Secret fornecido pela Life.
 
 ## Ploomes: API pública, acesso e limite
 
 A documentação e o endpoint do Ploomes são públicos, mas isso **não comprova que o acesso esteja incluído gratuitamente no plano da Life**. A Life precisa confirmar no contrato se a API está habilitada e se há custo adicional. A integração só começa após essa confirmação.
 
-| Aspecto | Decisão |
-| --- | --- |
-| Base URL | `https://public-api2.ploomes.com` |
-| Autenticação | Cabeçalho `User-Key`, obtido de um usuário de integração criado por administrador do Ploomes. |
-| Escopo | `Contacts` e `Deals` para orçamento, contratação e assistência avulsa sem contrato. |
-| Fora do escopo | Chamados técnicos, P1/P2, escalonamento e encerramento técnico. |
-| Consulta | OData com `$filter`, `$select`, `$top`, `$skip`, `$orderby` e `$expand`. |
-| Limite | 120 requisições/minuto compartilhadas por todos os usuários de integração da conta; tratar HTTP 429. |
-| Paginação | Usar páginas de até 100 itens e selecionar apenas campos necessários. |
-| Payload | Máximo de 10 MB. |
+| Aspecto        | Decisão                                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------------------- |
+| Base URL       | `https://public-api2.ploomes.com`                                                                    |
+| Autenticação   | Cabeçalho `User-Key`, obtido de um usuário de integração criado por administrador do Ploomes.        |
+| Escopo         | `Contacts` e `Deals` para orçamento, contratação e assistência avulsa sem contrato.                  |
+| Fora do escopo | Chamados técnicos, P1/P2, escalonamento e encerramento técnico.                                      |
+| Consulta       | OData com `$filter`, `$select`, `$top`, `$skip`, `$orderby` e `$expand`.                             |
+| Limite         | 120 requisições/minuto compartilhadas por todos os usuários de integração da conta; tratar HTTP 429. |
+| Paginação      | Usar páginas de até 100 itens e selecionar apenas campos necessários.                                |
+| Payload        | Máximo de 10 MB.                                                                                     |
 
 ### Fluxo comercial proposto
 
@@ -45,7 +45,7 @@ Antes da implementação, a Life deve fornecer: User-Key de homologação, IDs d
 
 ## Supabase
 
-Supabase fornece o PostgreSQL do bot e o armazenamento privado de anexos. Migrations em `db/migrations/` são a fonte de verdade para o banco.
+Supabase fornece o PostgreSQL do bot e o armazenamento privado de anexos. Migrations em `supabase/migrations/` são a fonte de verdade para o banco. O procedimento está em `docs/runbooks/SUPABASE.md`.
 
 - O backend usa credenciais de servidor; cliente WhatsApp nunca recebe chave privilegiada.
 - Anexos ficam em bucket privado, associados ao protocolo.
