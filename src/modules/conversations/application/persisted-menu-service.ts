@@ -17,7 +17,7 @@ const humanMessage =
   'Claro! Vou encaminhar sua solicitação para uma pessoa da equipe Life. Assim que possível, ela seguirá com você por aqui.';
 
 export class PersistedMenuService {
-  constructor(private readonly store: SupabaseConversationStore) {}
+  constructor(private readonly store: SupabaseConversationStore) { }
 
   async process(
     messages: IncomingMessage[],
