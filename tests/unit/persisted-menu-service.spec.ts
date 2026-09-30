@@ -10,6 +10,7 @@ class FakeStore {
   readonly audits: string[] = [];
   readonly outbound: string[] = [];
   readonly handoffs: string[] = [];
+  readonly protocols: string[] = [];
   conversation: StoredConversation = {
     id: 'conversation-1',
     state: 'consent',
@@ -33,6 +34,10 @@ class FakeStore {
   }
   async recordHandoff(_conversation: StoredConversation, reason: string) {
     this.handoffs.push(reason);
+  }
+  async createCommercialProtocol(_conversation: StoredConversation) {
+    this.protocols.push('LFE-TEST-0001');
+    return 'LFE-TEST-0001';
   }
 }
 
@@ -64,5 +69,49 @@ describe('persisted menu service', () => {
 
     expect(result.responses[0]).toMatchObject({ state: 'HANDOFF_HUMANO' });
     expect(store.handoffs).toContain('classification_unresolved');
+  });
+
+  it('uses a high-confidence AI classification only when the menu cannot classify the request', async () => {
+    const store = new FakeStore();
+    store.conversation = { ...store.conversation, state: 'route' };
+    const service = new PersistedMenuService(
+      store as unknown as SupabaseConversationStore,
+      undefined,
+      { classify: async () => ({ route: 'commercial', confidence: 0.91 }) },
+    );
+
+    const result = await service.process([
+      { id: 'wamid-ai', from: '+5511999999999', text: 'Tenho interesse no contrato anual' },
+    ]);
+
+    expect(result.responses[0]).toMatchObject({ state: 'COMMERCIAL_SERVICE_MENU' });
+    expect(store.audits).toContain('menu.ai_commercial_selected');
+  });
+
+  it('collects commercial details, presents a review and creates one local protocol after confirmation', async () => {
+    const store = new FakeStore();
+    store.conversation = {
+      ...store.conversation,
+      state: 'collecting',
+      route: 'commercial',
+      context: { service: 'PMOC' },
+    };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+    const messages = [
+      'São Paulo - Unidade Norte',
+      'Ana Silva',
+      'Clínica Alfa',
+      '5511999999999',
+      'até 7 dias',
+      'Preciso revisar o plano mensal.',
+      'CONFIRMAR',
+    ];
+
+    for (const [index, text] of messages.entries())
+      await service.process([{ id: `wamid-commercial-${index}`, from: '+5511999999999', text }]);
+
+    expect(store.conversation.state).toBe('queued');
+    expect(store.protocols).toEqual(['LFE-TEST-0001']);
+    expect(store.outbound.at(-1)).toContain('LFE-TEST-0001');
   });
 });
