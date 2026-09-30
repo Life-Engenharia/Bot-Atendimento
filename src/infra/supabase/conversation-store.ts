@@ -8,7 +8,15 @@ export type StoredConversation = {
   id: string;
   state: 'started' | 'consent' | 'route' | 'collecting' | 'review' | 'queued' | 'human' | 'closed';
   route: 'commercial' | 'technical' | 'human' | null;
-  context: { service?: string };
+  context: {
+    service?: string;
+    location?: string;
+    contactName?: string;
+    company?: string;
+    contactPhone?: string;
+    timeline?: string;
+    need?: string;
+  };
 };
 
 type Contact = { id: string };
@@ -139,6 +147,49 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [201],
     );
+  }
+
+  async createCommercialProtocol(conversation: StoredConversation): Promise<string> {
+    const context = conversation.context;
+    if (!context.service || !context.location || !context.timeline || !context.need)
+      throw new Error('A solicitação comercial não possui todos os dados obrigatórios.');
+    const reference = `LFE-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const protocols = await this.request<Array<{ id: string }>>(
+      'protocols',
+      {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ reference, type: 'commercial', status: 'new' }),
+      },
+      [201],
+    );
+    const protocolId = protocols[0]?.id;
+    if (!protocolId) throw new Error('O Supabase não retornou o protocolo comercial criado.');
+    await this.request(
+      'commercial_requests',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          protocol_id: protocolId,
+          service: context.service,
+          location: context.location,
+          timeline: context.timeline,
+          need: context.need,
+        }),
+      },
+      [201],
+    );
+    await this.request(
+      `conversations?id=eq.${encodeURIComponent(conversation.id)}`,
+      { method: 'PATCH', body: JSON.stringify({ protocol_id: protocolId, state: 'queued' }) },
+      [204],
+    );
+    await this.audit('commercial.protocol_queued', 'customer', {
+      protocolId,
+      reference,
+      route: 'commercial',
+    });
+    return reference;
   }
 
   private async upsertContact(phone: string): Promise<Contact> {
