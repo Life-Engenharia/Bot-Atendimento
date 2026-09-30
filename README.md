@@ -58,6 +58,25 @@ npm run simulate:memory
 Cada execução gera telefone e IDs de mensagem fictícios, exibindo o diálogo e
 interrompendo com erro se uma resposta, estado ou deduplicação divergir do esperado.
 
+## Configuração operacional pelo WhatsApp
+
+Defina `ADMIN_PHONE_E164` em `.env.local` com o único número autorizado, usando
+apenas dígitos e o código do país. Esse número pode enviar `/config` e registrar
+responsáveis, escalas, horários e regras de roteamento. Cada alteração exige a
+mensagem `CONFIRMAR`, fica salva no Supabase e gera um evento de auditoria.
+
+Exemplos de alterações:
+
+```text
+RESPONSAVEL Ana Silva | 5511999999999 | comercial
+ESCALA comercial | seg-sex | 08:00 | 18:00 | 5511999999999 | 5511988888888
+HORARIO comercial | seg-sex | 08:00 | 18:00
+ROTA solicitacao_sem_classificacao | humano
+```
+
+Quando o bot não identifica uma solicitação na etapa de roteamento, ele transfere
+a conversa à fila humana e registra o motivo no histórico de `handoffs`.
+
 ## Teste de saída pelo WhatsApp Cloud API
 
 Após adicionar um número de destinatário permitido na área de testes da Meta,
