@@ -12,6 +12,7 @@ import {
 } from '../../internal_operations/application/administrative-menu-service.js';
 import { IncomingMessage, WebhookResult } from '../../webhook/application/webhook-processor.js';
 import { MenuResponse } from './menu-service.js';
+import { TriageAnalyzer } from './triage-analyzer.js';
 
 type BotResponse = MenuResponse | AdministrativeResponse;
 
@@ -26,6 +27,7 @@ export class PersistedMenuService {
   constructor(
     private readonly store: SupabaseConversationStore,
     private readonly administrativeMenu?: AdministrativeMenuService,
+    private readonly triageAnalyzer?: TriageAnalyzer,
   ) {}
 
   async process(
@@ -97,12 +99,26 @@ export class PersistedMenuService {
           'Entendi. Vou fazer algumas perguntas rápidas para organizar o chamado. Por segurança, não mexa no equipamento nem em painéis energizados; a equipe técnica vai validar as informações antes de orientar qualquer ação.';
         await this.store.audit('menu.technical_selected', 'customer', { phone: message.from });
       } else {
-        conversation.state = 'human';
-        conversation.route = 'human';
-        responseText =
-          'Não consegui identificar sua solicitação com segurança. Vou encaminhar esta conversa para uma pessoa da equipe Life.';
-        await this.store.recordHandoff(conversation, 'classification_unresolved', 'bot');
-        await this.store.audit('menu.classification_unresolved', 'bot', { phone: message.from });
+        const analysis = await this.tryClassify(text);
+        if (analysis === 'commercial') {
+          conversation.state = 'collecting';
+          conversation.route = 'commercial';
+          responseText = commercialServiceMenu();
+          await this.store.audit('menu.ai_commercial_selected', 'openai', { phone: message.from });
+        } else if (analysis === 'technical') {
+          conversation.state = 'collecting';
+          conversation.route = 'technical';
+          responseText =
+            'Entendi. Vou fazer algumas perguntas rápidas para organizar o chamado. Por segurança, não mexa no equipamento nem em painéis energizados; a equipe técnica vai validar as informações antes de orientar qualquer ação.';
+          await this.store.audit('menu.ai_technical_selected', 'openai', { phone: message.from });
+        } else {
+          conversation.state = 'human';
+          conversation.route = 'human';
+          responseText =
+            'Não consegui identificar sua solicitação com segurança. Vou encaminhar esta conversa para uma pessoa da equipe Life.';
+          await this.store.recordHandoff(conversation, 'classification_unresolved', 'bot');
+          await this.store.audit('menu.classification_unresolved', 'bot', { phone: message.from });
+        }
       }
     } else if (
       conversation.state === 'collecting' &&
@@ -119,6 +135,29 @@ export class PersistedMenuService {
           service,
         });
       }
+    } else if (conversation.state === 'collecting' && conversation.route === 'commercial') {
+      const nextField = nextCommercialField(conversation);
+      if (!nextField) throw new Error('Não há campo comercial pendente.');
+      if (!message.text?.trim()) responseText = commercialQuestion(nextField);
+      else {
+        conversation.context[nextField] = message.text.trim();
+        const followingField = nextCommercialField(conversation);
+        if (followingField) responseText = commercialQuestion(followingField);
+        else {
+          conversation.state = 'review';
+          responseText = commercialSummary(conversation);
+          await this.store.audit('commercial.review_ready', 'customer', { phone: message.from });
+        }
+      }
+    } else if (conversation.state === 'review' && conversation.route === 'commercial') {
+      if (text === 'confirmar' || text === 'sim') {
+        const reference = await this.store.createCommercialProtocol(conversation);
+        conversation.state = 'queued';
+        responseText = `Solicitação confirmada. Seu protocolo é ${reference}. A equipe comercial seguirá com você por aqui.`;
+      } else {
+        responseText =
+          'Revise os dados acima. Responda CONFIRMAR para gerar o protocolo ou envie /config para ajustes internos.';
+      }
     } else if (conversation.state === 'human')
       responseText =
         'Sua solicitação já está com a equipe Life. Se quiser, pode enviar mais detalhes por aqui enquanto aguarda.';
@@ -129,6 +168,60 @@ export class PersistedMenuService {
     await this.store.saveOutbound(conversation.id, responseText);
     return { to: message.from, state: menuState(conversation), text: responseText };
   }
+
+  private async tryClassify(text: string): Promise<'commercial' | 'technical' | undefined> {
+    if (!this.triageAnalyzer || !text) return undefined;
+    try {
+      const analysis = await this.triageAnalyzer.classify(text);
+      return analysis.confidence >= 0.8 && analysis.route !== 'human' ? analysis.route : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+type CommercialContextField =
+  'location' | 'contactName' | 'company' | 'contactPhone' | 'timeline' | 'need';
+
+const commercialFields: CommercialContextField[] = [
+  'location',
+  'contactName',
+  'company',
+  'contactPhone',
+  'timeline',
+  'need',
+];
+
+function nextCommercialField(conversation: StoredConversation): CommercialContextField | undefined {
+  return commercialFields.find((field) => !conversation.context[field]);
+}
+
+function commercialQuestion(field: CommercialContextField): string {
+  const questions: Record<CommercialContextField, string> = {
+    location: 'Em qual cidade e unidade será o atendimento?',
+    contactName: 'Qual é o seu nome para identificação?',
+    company: 'Qual é a empresa ou instituição?',
+    contactPhone: 'Qual telefone devemos usar para retorno?',
+    timeline: 'Qual é o prazo desejado para este atendimento?',
+    need: 'Descreva brevemente a necessidade ou o objetivo do serviço.',
+  };
+  return questions[field];
+}
+
+function commercialSummary(conversation: StoredConversation): string {
+  const context = conversation.context;
+  return [
+    'Revise sua solicitação:',
+    `• Serviço: ${context.service}`,
+    `• Local: ${context.location}`,
+    `• Contato: ${context.contactName}`,
+    `• Empresa: ${context.company}`,
+    `• Telefone: ${context.contactPhone}`,
+    `• Prazo: ${context.timeline}`,
+    `• Necessidade: ${context.need}`,
+    '',
+    'Responda CONFIRMAR para gerar o protocolo.',
+  ].join('\n');
 }
 
 function menuState(conversation: StoredConversation): MenuResponse['state'] {
