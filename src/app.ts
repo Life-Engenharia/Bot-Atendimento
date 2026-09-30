@@ -12,6 +12,7 @@ import {
   IncomingMessage,
 } from './modules/webhook/application/webhook-processor.js';
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
+import { AdministrativeMenuService } from './modules/internal_operations/application/administrative-menu-service.js';
 
 export type AppDependencies = {
   environment?: Environment;
@@ -26,13 +27,17 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const auditLog = dependencies.auditLog ?? new InMemoryAuditLog();
   const webhookProcessor = dependencies.webhookProcessor ?? new WebhookProcessor(auditLog);
   const menuService = dependencies.menuService ?? new MenuService(auditLog);
+  const supabaseStore =
+    environment.SUPABASE_URL && environment.SUPABASE_API
+      ? new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API)
+      : undefined;
+  const administrativeMenu =
+    supabaseStore && environment.ADMIN_PHONE_E164
+      ? new AdministrativeMenuService(environment.ADMIN_PHONE_E164, supabaseStore)
+      : undefined;
   const persistedMenuService =
     dependencies.persistedMenuService ??
-    (environment.SUPABASE_URL && environment.SUPABASE_API
-      ? new PersistedMenuService(
-        new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API),
-      )
-      : undefined);
+    (supabaseStore ? new PersistedMenuService(supabaseStore, administrativeMenu) : undefined);
   const app = Fastify({ logger: environment.NODE_ENV !== 'test' });
   const openApiPath = fileURLToPath(new URL('../docs/api/openapi.yaml', import.meta.url));
 
