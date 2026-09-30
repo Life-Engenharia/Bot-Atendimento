@@ -10,6 +10,7 @@ const environmentSchema = z
     META_ACCESS_TOKEN: z.string().min(1).optional(),
     WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
     WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
+    ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
   })
   .superRefine((value, context) => {
     if (Boolean(value.SUPABASE_URL) !== Boolean(value.SUPABASE_API)) {
