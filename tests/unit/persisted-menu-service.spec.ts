@@ -9,6 +9,7 @@ class FakeStore {
   private readonly received = new Set<string>();
   readonly audits: string[] = [];
   readonly outbound: string[] = [];
+  readonly handoffs: string[] = [];
   conversation: StoredConversation = {
     id: 'conversation-1',
     state: 'consent',
@@ -30,6 +31,9 @@ class FakeStore {
   async audit(eventType: string) {
     this.audits.push(eventType);
   }
+  async recordHandoff(_conversation: StoredConversation, reason: string) {
+    this.handoffs.push(reason);
+  }
 }
 
 describe('persisted menu service', () => {
@@ -47,5 +51,18 @@ describe('persisted menu service', () => {
     expect(store.audits).toContain('menu.consent_accepted');
     expect(store.outbound).toHaveLength(2);
     expect(repeated).toMatchObject({ processed: 0, duplicates: 1, responses: [] });
+  });
+
+  it('transfers an unclassified route to a human queue', async () => {
+    const store = new FakeStore();
+    store.conversation = { ...store.conversation, state: 'route' };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    const result = await service.process([
+      { id: 'wamid-unknown', from: '+5511999999999', text: 'xyz' },
+    ]);
+
+    expect(result.responses[0]).toMatchObject({ state: 'HANDOFF_HUMANO' });
+    expect(store.handoffs).toContain('classification_unresolved');
   });
 });

@@ -6,8 +6,14 @@ import {
   commercialServiceByOption,
   commercialServiceMenu,
 } from '../../commercial/domain/commercial-services.js';
+import {
+  AdministrativeMenuService,
+  AdministrativeResponse,
+} from '../../internal_operations/application/administrative-menu-service.js';
 import { IncomingMessage, WebhookResult } from '../../webhook/application/webhook-processor.js';
 import { MenuResponse } from './menu-service.js';
+
+type BotResponse = MenuResponse | AdministrativeResponse;
 
 const consentMessage =
   'Olá! Tudo bem? Eu sou a assistente virtual da Life Engenharia. Posso te ajudar a organizar sua solicitação e encaminhá-la para o time responsável.\n\nPara isso, vou registrar as informações desta conversa. Podemos continuar?\n\n1. Sim, vamos lá\n2. Prefiro falar com uma pessoa';
@@ -17,15 +23,18 @@ const humanMessage =
   'Claro! Vou encaminhar sua solicitação para uma pessoa da equipe Life. Assim que possível, ela seguirá com você por aqui.';
 
 export class PersistedMenuService {
-  constructor(private readonly store: SupabaseConversationStore) { }
+  constructor(
+    private readonly store: SupabaseConversationStore,
+    private readonly administrativeMenu?: AdministrativeMenuService,
+  ) {}
 
   async process(
     messages: IncomingMessage[],
-  ): Promise<WebhookResult & { responses: MenuResponse[] }> {
+  ): Promise<WebhookResult & { responses: BotResponse[] }> {
     let processed = 0;
     let duplicates = 0;
     const acceptedMessages: IncomingMessage[] = [];
-    const responses: MenuResponse[] = [];
+    const responses: BotResponse[] = [];
     for (const message of messages) {
       const accepted = await this.store.acceptInbound(message);
       if (!accepted) {
@@ -34,7 +43,11 @@ export class PersistedMenuService {
       }
       processed += 1;
       acceptedMessages.push(message);
-      responses.push(await this.handle(message, accepted.conversation));
+      const administrativeResponse = await this.administrativeMenu?.handle(
+        message.from,
+        message.text,
+      );
+      responses.push(administrativeResponse ?? (await this.handle(message, accepted.conversation)));
     }
     return { processed, duplicates, acceptedMessages, responses };
   }
@@ -51,6 +64,7 @@ export class PersistedMenuService {
         conversation.state = 'human';
         conversation.route = 'human';
         responseText = humanMessage;
+        await this.store.recordHandoff(conversation, 'customer_requested', 'customer');
         await this.store.audit('menu.handoff_requested', 'customer', { phone: message.from });
       } else if (isConsent(text)) {
         conversation.state = 'route';
@@ -64,6 +78,7 @@ export class PersistedMenuService {
         conversation.state = 'human';
         conversation.route = 'human';
         responseText = humanMessage;
+        await this.store.recordHandoff(conversation, 'customer_requested', 'customer');
         await this.store.audit('menu.handoff_requested', 'customer', { phone: message.from });
       } else if (
         text === '1' ||
@@ -81,9 +96,14 @@ export class PersistedMenuService {
         responseText =
           'Entendi. Vou fazer algumas perguntas rápidas para organizar o chamado. Por segurança, não mexa no equipamento nem em painéis energizados; a equipe técnica vai validar as informações antes de orientar qualquer ação.';
         await this.store.audit('menu.technical_selected', 'customer', { phone: message.from });
-      } else
+      } else {
+        conversation.state = 'human';
+        conversation.route = 'human';
         responseText =
-          'Não consegui identificar a opção. Você pode responder 1 para orçamento, 2 para assistência técnica ou 3 para falar com uma pessoa?';
+          'Não consegui identificar sua solicitação com segurança. Vou encaminhar esta conversa para uma pessoa da equipe Life.';
+        await this.store.recordHandoff(conversation, 'classification_unresolved', 'bot');
+        await this.store.audit('menu.classification_unresolved', 'bot', { phone: message.from });
+      }
     } else if (
       conversation.state === 'collecting' &&
       conversation.route === 'commercial' &&
