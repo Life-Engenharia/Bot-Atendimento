@@ -15,7 +15,7 @@ export type WebhookResult = {
 export class WebhookProcessor {
   private readonly receivedMessageIds = new Set<string>();
 
-  constructor(private readonly auditLog: InMemoryAuditLog) { }
+  constructor(private readonly auditLog: InMemoryAuditLog) {}
 
   process(messages: IncomingMessage[]): WebhookResult {
     let processed = 0;
