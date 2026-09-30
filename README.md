@@ -77,6 +77,35 @@ ROTA solicitacao_sem_classificacao | humano
 Quando o bot não identifica uma solicitação na etapa de roteamento, ele transfere
 a conversa à fila humana e registra o motivo no histórico de `handoffs`.
 
+## Integração inicial com Ploomes
+
+Inclua `PLOOMES_USER_KEY` em `.env.local`. A chave fica fora do Git e é enviada
+somente pelo backend no cabeçalho `User-Key`. Para validar a conta conectada sem
+criar ou alterar dados no CRM, execute:
+
+```bash
+npm run ploomes:check
+```
+
+Antes de habilitar criação de oportunidades, descubra os IDs reais que deverão
+ser parametrizados para a Life. O comando abaixo somente consulta o CRM:
+
+```bash
+npm run ploomes:discover
+```
+
+## Classificação opcional com OpenAI
+
+A OpenAI não é necessária para o menu principal. Quando `OPENAI_API_KEY` e
+`OPENAI_MODEL` estão configuradas, ela analisa apenas mensagens ambíguas da etapa
+de roteamento. O backend envia somente o texto da mensagem, solicita uma rota
+estruturada e mantém `store: false`. Respostas com confiança abaixo de 80%, erro
+ou pedido de pessoa continuam sendo encaminhadas à fila humana.
+
+```bash
+npm run openai:check
+```
+
 ## Teste de saída pelo WhatsApp Cloud API
 
 Após adicionar um número de destinatário permitido na área de testes da Meta,
