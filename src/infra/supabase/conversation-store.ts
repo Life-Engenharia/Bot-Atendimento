@@ -1,4 +1,8 @@
 import { IncomingMessage } from '../../modules/webhook/application/webhook-processor.js';
+import type {
+  OperationalConfigurationStore,
+  OperationalSetting,
+} from '../../modules/internal_operations/application/administrative-menu-service.js';
 
 export type StoredConversation = {
   id: string;
@@ -10,7 +14,7 @@ export type StoredConversation = {
 type Contact = { id: string };
 type StoredMessage = { id: string };
 
-export class SupabaseConversationStore {
+export class SupabaseConversationStore implements OperationalConfigurationStore {
   constructor(
     private readonly url: string,
     private readonly serviceKey: string,
@@ -88,6 +92,51 @@ export class SupabaseConversationStore {
     await this.request(
       'audit_events',
       { method: 'POST', body: JSON.stringify({ event_type: eventType, actor, payload }) },
+      [201],
+    );
+  }
+
+  async appendSetting(setting: OperationalSetting, actor: string): Promise<void> {
+    const existing = await this.request<Array<{ value: Record<string, string>[] }>>(
+      `operational_settings?key=eq.${encodeURIComponent(setting.key)}&select=value`,
+      {},
+      [200],
+    );
+    const values = [...(existing[0]?.value ?? []), setting.value];
+    await this.request(
+      `operational_settings?on_conflict=key`,
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          key: setting.key,
+          value: values,
+          updated_by: actor,
+          updated_at: new Date().toISOString(),
+        }),
+      },
+      [200, 201],
+    );
+    await this.audit('configuration.updated', actor, { key: setting.key, value: setting.value });
+  }
+
+  async recordHandoff(
+    conversation: StoredConversation,
+    reason: string,
+    initiatedBy: string,
+  ): Promise<void> {
+    await this.request(
+      'handoffs',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          conversation_id: conversation.id,
+          reason,
+          source_route: conversation.route,
+          destination_area: 'human',
+          initiated_by: initiatedBy,
+        }),
+      },
       [201],
     );
   }
