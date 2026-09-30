@@ -23,7 +23,10 @@
     "simulate:memory": "tsx scripts/simulate-whatsapp.ts --memory",
     "meta:check": "tsx scripts/check-meta-connection.ts",
     "meta:send-test": "tsx scripts/send-meta-test.ts",
-    "meta:send-template": "tsx scripts/send-meta-template.ts"
+    "meta:send-template": "tsx scripts/send-meta-template.ts",
+    "ploomes:check": "tsx scripts/check-ploomes-connection.ts",
+    "ploomes:discover": "tsx scripts/discover-ploomes-configuration.ts",
+    "openai:check": "tsx scripts/check-openai-connection.ts"
   },
   "dependencies": {
     "@fastify/swagger": "^9.9.0",

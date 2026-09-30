@@ -13,6 +13,7 @@ import {
 } from './modules/webhook/application/webhook-processor.js';
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
 import { AdministrativeMenuService } from './modules/internal_operations/application/administrative-menu-service.js';
+import { OpenAiTriageClient } from './infra/openai/openai-triage-client.js';
 
 export type AppDependencies = {
   environment?: Environment;
@@ -35,9 +36,15 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     supabaseStore && environment.ADMIN_PHONE_E164
       ? new AdministrativeMenuService(environment.ADMIN_PHONE_E164, supabaseStore)
       : undefined;
+  const triageAnalyzer =
+    environment.OPENAI_API_KEY && environment.OPENAI_MODEL
+      ? new OpenAiTriageClient(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
+      : undefined;
   const persistedMenuService =
     dependencies.persistedMenuService ??
-    (supabaseStore ? new PersistedMenuService(supabaseStore, administrativeMenu) : undefined);
+    (supabaseStore
+      ? new PersistedMenuService(supabaseStore, administrativeMenu, triageAnalyzer)
+      : undefined);
   const app = Fastify({ logger: environment.NODE_ENV !== 'test' });
   const openApiPath = fileURLToPath(new URL('../docs/api/openapi.yaml', import.meta.url));
 

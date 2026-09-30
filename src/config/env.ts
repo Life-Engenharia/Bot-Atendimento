@@ -11,6 +11,9 @@ const environmentSchema = z
     WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
     WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
     ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
+    PLOOMES_USER_KEY: z.string().min(1).optional(),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    OPENAI_MODEL: z.string().min(1).optional(),
   })
   .superRefine((value, context) => {
     if (Boolean(value.SUPABASE_URL) !== Boolean(value.SUPABASE_API)) {
@@ -29,6 +32,12 @@ const environmentSchema = z
         code: z.ZodIssueCode.custom,
         message:
           'META_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID e WHATSAPP_BUSINESS_ACCOUNT_ID devem ser configuradas juntas.',
+      });
+    }
+    if (Boolean(value.OPENAI_API_KEY) !== Boolean(value.OPENAI_MODEL)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'OPENAI_API_KEY e OPENAI_MODEL devem ser configuradas juntas.',
       });
     }
   });
