@@ -11,6 +11,7 @@ const environmentSchema = z
     WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
     WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
     ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
+    ADMIN_DASHBOARD_TOKEN: z.string().min(24).optional(),
     PLOOMES_USER_KEY: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     OPENAI_MODEL: z.string().min(1).optional(),
