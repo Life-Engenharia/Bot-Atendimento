@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
+import type {
+  OperationalConfigurationStore,
+  OperationalSetting,
+} from '../../src/modules/internal_operations/application/administrative-menu-service.js';
+
+class FakeOperationalConfigurationStore implements OperationalConfigurationStore {
+  settings: OperationalSetting[] = [];
+
+  async appendSetting(setting: OperationalSetting): Promise<void> {
+    this.settings.push(setting);
+  }
+
+  async listSettings(): Promise<OperationalSetting[]> {
+    return this.settings;
+  }
+
+  async replaceSetting(
+    key: OperationalSetting['key'],
+    values: Record<string, string>[],
+  ): Promise<void> {
+    this.settings = [
+      ...this.settings.filter((setting) => setting.key !== key),
+      ...values.map((value) => ({ key, value })),
+    ];
+  }
+}
 
 describe('application foundation', () => {
   it('reports a healthy service', async () => {
@@ -24,6 +50,41 @@ describe('application foundation', () => {
       openapi: '3.1.0',
       info: { title: 'Bot Atendimento Life API' },
     });
+    await app.close();
+  });
+
+  it('serves the protected admin dashboard and persists dashboard configuration', async () => {
+    const store = new FakeOperationalConfigurationStore();
+    const app = buildApp({
+      environment: {
+        NODE_ENV: 'test',
+        PORT: 3000,
+        WHATSAPP_VERIFY_TOKEN: 'test-token-123',
+        ADMIN_DASHBOARD_TOKEN: 'dashboard-token-with-at-least-24-characters',
+      },
+      operationalConfigurationStore: store,
+    });
+    const dashboard = await app.inject({ method: 'GET', url: '/admin' });
+    const denied = await app.inject({ method: 'GET', url: '/api/admin/settings' });
+    const saved = await app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings/responsaveis',
+      headers: { authorization: 'Bearer dashboard-token-with-at-least-24-characters' },
+      payload: { values: [{ nome: 'Ana', telefone: '5511999999999', area: 'comercial' }] },
+    });
+    const loaded = await app.inject({
+      method: 'GET',
+      url: '/api/admin/settings',
+      headers: { authorization: 'Bearer dashboard-token-with-at-least-24-characters' },
+    });
+
+    expect(dashboard.statusCode).toBe(200);
+    expect(dashboard.body).toContain('Configuração operacional');
+    expect(denied.statusCode).toBe(401);
+    expect(saved.statusCode).toBe(204);
+    expect(loaded.json()).toEqual([
+      { key: 'responsaveis', value: { nome: 'Ana', telefone: '5511999999999', area: 'comercial' } },
+    ]);
     await app.close();
   });
 

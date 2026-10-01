@@ -77,6 +77,19 @@ ROTA solicitacao_sem_classificacao | humano
 Quando o bot não identifica uma solicitação na etapa de roteamento, ele transfere
 a conversa à fila humana e registra o motivo no histórico de `handoffs`.
 
+## Dashboard administrativa
+
+Com `SUPABASE_URL`, `SUPABASE_API` e `ADMIN_DASHBOARD_TOKEN` configuradas, o mesmo
+serviço do bot disponibiliza `GET /admin`. A tela permite incluir e remover
+responsáveis, escalas, horários e regras de roteamento; todas as mudanças são
+salvas no Supabase e registradas na auditoria. A chave é solicitada no navegador
+e enviada somente como `Bearer` para as rotas `/api/admin/*`.
+
+Em produção, defina `ADMIN_DASHBOARD_TOKEN` no Secret Manager do Google Cloud
+(mínimo de 24 caracteres) e entregue-a somente aos administradores autorizados.
+O painel e o webhook compartilham o mesmo serviço Cloud Run; não publique
+`SUPABASE_API`, tokens da Meta ou chaves OpenAI no navegador.
+
 ## Integração inicial com Ploomes
 
 Inclua `PLOOMES_USER_KEY` em `.env.local`. A chave fica fora do Git e é enviada
