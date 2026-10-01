@@ -110,14 +110,30 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       {},
       [200],
     );
-    const values = [...(existing[0]?.value ?? []), setting.value];
+    await this.replaceSetting(setting.key, [...(existing[0]?.value ?? []), setting.value], actor);
+  }
+
+  async listSettings(): Promise<OperationalSetting[]> {
+    const settings = await this.request<
+      Array<{ key: OperationalSetting['key']; value: Record<string, string>[] }>
+    >('operational_settings?select=key,value&order=key', {}, [200]);
+    return settings.flatMap((setting) =>
+      setting.value.map((value) => ({ key: setting.key, value })),
+    );
+  }
+
+  async replaceSetting(
+    key: OperationalSetting['key'],
+    values: Record<string, string>[],
+    actor: string,
+  ): Promise<void> {
     await this.request(
-      `operational_settings?on_conflict=key`,
+      'operational_settings?on_conflict=key',
       {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: JSON.stringify({
-          key: setting.key,
+          key,
           value: values,
           updated_by: actor,
           updated_at: new Date().toISOString(),
@@ -125,7 +141,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [200, 201],
     );
-    await this.audit('configuration.updated', actor, { key: setting.key, value: setting.value });
+    await this.audit('configuration.updated', actor, {
+      key,
+      value: values,
+      source: actor === 'admin-dashboard' ? 'dashboard' : 'whatsapp',
+    });
   }
 
   async recordHandoff(
