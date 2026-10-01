@@ -11,6 +11,12 @@ class FakeConfigurationStore implements OperationalConfigurationStore {
   async appendSetting(setting: OperationalSetting): Promise<void> {
     this.settings.push(setting);
   }
+
+  async listSettings(): Promise<OperationalSetting[]> {
+    return this.settings;
+  }
+
+  async replaceSetting(): Promise<void> {}
 }
 
 describe('administrative menu', () => {

@@ -11,6 +11,12 @@ export type OperationalSetting = {
 
 export interface OperationalConfigurationStore {
   appendSetting(setting: OperationalSetting, actor: string): Promise<void>;
+  listSettings(): Promise<OperationalSetting[]>;
+  replaceSetting(
+    key: OperationalSetting['key'],
+    values: Record<string, string>[],
+    actor: string,
+  ): Promise<void>;
 }
 
 const menu = [
