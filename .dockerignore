@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.env
+.env.*
+!.env.example
+coverage
+output
+tests
+docs/n8n
+docs/planning
+docs/specifications
+docs/architecture
+docs/runbooks
+*.log
