@@ -8,6 +8,7 @@ const environmentSchema = z
     SUPABASE_URL: z.string().url().optional(),
     SUPABASE_API: z.string().min(1).optional(),
     META_ACCESS_TOKEN: z.string().min(1).optional(),
+    META_APP_SECRET: z.string().min(1).optional(),
     WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
     WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
     ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
@@ -33,6 +34,12 @@ const environmentSchema = z
         code: z.ZodIssueCode.custom,
         message:
           'META_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID e WHATSAPP_BUSINESS_ACCOUNT_ID devem ser configuradas juntas.',
+      });
+    }
+    if (value.NODE_ENV === 'production' && metaValues.every(Boolean) && !value.META_APP_SECRET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'META_APP_SECRET é obrigatório em produção quando a Meta WhatsApp API está configurada.',
       });
     }
     if (Boolean(value.OPENAI_API_KEY) !== Boolean(value.OPENAI_MODEL)) {

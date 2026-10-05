@@ -16,11 +16,20 @@ import {
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
 import { AdministrativeMenuService } from './modules/internal_operations/application/administrative-menu-service.js';
 import { OpenAiTriageClient } from './infra/openai/openai-triage-client.js';
+import { WhatsAppCloudClient } from './infra/meta/whatsapp-cloud-client.js';
+import { isValidMetaSignature, normalizeMetaWebhook } from './infra/meta/whatsapp-cloud-adapter.js';
+import type { OutboundSender } from './modules/conversations/application/persisted-menu-service.js';
 import type {
   OperationalConfigurationStore,
   OperationalSetting,
 } from './modules/internal_operations/application/administrative-menu-service.js';
 import { adminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard.js';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    rawBody?: Buffer;
+  }
+}
 
 export type AppDependencies = {
   environment?: Environment;
@@ -29,6 +38,7 @@ export type AppDependencies = {
   menuService?: MenuService;
   persistedMenuService?: PersistedMenuService;
   operationalConfigurationStore?: OperationalConfigurationStore;
+  outboundSender?: OutboundSender;
 };
 
 const settingKeySchema = z.enum(['responsaveis', 'escalas', 'horarios', 'roteamento']);
@@ -52,12 +62,29 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     environment.OPENAI_API_KEY && environment.OPENAI_MODEL
       ? new OpenAiTriageClient(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
       : undefined;
+  const outboundSender =
+    dependencies.outboundSender ??
+    (environment.META_ACCESS_TOKEN && environment.WHATSAPP_PHONE_NUMBER_ID
+      ? new WhatsAppCloudClient(environment.META_ACCESS_TOKEN, environment.WHATSAPP_PHONE_NUMBER_ID)
+      : undefined);
   const persistedMenuService =
     dependencies.persistedMenuService ??
     (supabaseStore
-      ? new PersistedMenuService(supabaseStore, administrativeMenu, triageAnalyzer)
+      ? new PersistedMenuService(supabaseStore, administrativeMenu, triageAnalyzer, outboundSender)
       : undefined);
-  const app = Fastify({ logger: environment.NODE_ENV !== 'test' });
+  const app = Fastify({
+    logger: environment.NODE_ENV !== 'test',
+    // O webhook recebe apenas eventos JSON da Meta; mídia é baixada posteriormente pela API.
+    bodyLimit: 1_048_576,
+  });
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
+    request.rawBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    try {
+      done(null, JSON.parse(body.toString('utf8')));
+    } catch {
+      done(new Error('JSON inválido.'));
+    }
+  });
   const openApiPath = fileURLToPath(new URL('../docs/api/openapi.yaml', import.meta.url));
 
   app.register(fastifySwagger, {
@@ -115,10 +142,22 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     return reply.type('text/plain').send(query['hub.challenge']);
   });
 
-  app.post<{ Body: { messages?: IncomingMessage[] } }>(
+  app.post<{ Body: unknown }>(
     '/webhooks/whatsapp',
     async (request, reply) => {
-      const messages = request.body?.messages ?? [];
+      if (
+        environment.META_APP_SECRET &&
+        !isValidMetaSignature(
+          request.rawBody ?? Buffer.from(JSON.stringify(request.body)),
+          typeof request.headers['x-hub-signature-256'] === 'string'
+            ? request.headers['x-hub-signature-256']
+            : undefined,
+          environment.META_APP_SECRET,
+        )
+      ) {
+        return reply.code(401).send({ error: 'Assinatura do webhook inválida.' });
+      }
+      const messages = incomingMessages(request.body);
       if (persistedMenuService) {
         const result = await persistedMenuService.process(messages);
         return reply.code(200).send({
@@ -132,6 +171,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const responses = result.acceptedMessages.map((message) =>
         menuService.handle(message.from, message.text),
       );
+      if (outboundSender) {
+        await Promise.allSettled(responses.map((response) => outboundSender.sendText(response.to, response.text)));
+      }
       return reply.code(200).send({
         received: true,
         processed: result.processed,
@@ -144,10 +186,27 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error);
     const message = error instanceof Error ? error.message : 'Unexpected application error';
-    return reply.code(400).send({ error: message });
+    const statusCode =
+      typeof (error as { statusCode?: unknown }).statusCode === 'number'
+        ? (error as { statusCode: number }).statusCode
+        : 400;
+    return reply.code(statusCode).send({ error: message });
   });
 
   return app;
+}
+
+function incomingMessages(body: unknown): IncomingMessage[] {
+  if (body && typeof body === 'object' && Array.isArray((body as { messages?: unknown }).messages))
+    return (body as { messages: IncomingMessage[] }).messages;
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    (body as { object?: unknown }).object !== 'whatsapp_business_account' ||
+    !Array.isArray((body as { entry?: unknown }).entry)
+  )
+    throw new Error('Payload do webhook Meta inválido.');
+  return normalizeMetaWebhook(body as Parameters<typeof normalizeMetaWebhook>[0]);
 }
 
 function authorizeDashboard(

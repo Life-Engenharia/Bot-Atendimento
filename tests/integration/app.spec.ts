@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { buildApp } from '../../src/app.js';
 import type {
   OperationalConfigurationStore,
@@ -179,6 +180,100 @@ describe('application foundation', () => {
     expect(selection.json()).toMatchObject({
       responses: [{ state: 'COMMERCIAL_COLLECTING', text: expect.stringContaining('PMOC') }],
     });
+    await app.close();
+  });
+
+  it('accepts a signed official Meta payload, normalizes it and sends the bot response', async () => {
+    const sent: Array<{ to: string; body: string }> = [];
+    const secret = 'meta-app-secret';
+    const payload = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            { value: { messages: [{ id: 'wamid.official-1', from: '5511999999999', text: { body: 'Olá' } }] } },
+          ],
+        },
+      ],
+    });
+    const signature = `sha256=${createHmac('sha256', secret).update(payload).digest('hex')}`;
+    const app = buildApp({
+      environment: {
+        NODE_ENV: 'test',
+        PORT: 3000,
+        WHATSAPP_VERIFY_TOKEN: 'test-token-123',
+        META_APP_SECRET: secret,
+      },
+      outboundSender: {
+        sendText: async (to, body) => {
+          sent.push({ to, body });
+          return { messageId: 'wamid.outbound-1' };
+        },
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/whatsapp',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ processed: 1, responses: [{ state: 'CONSENT' }] });
+    expect(sent).toEqual([{ to: '5511999999999', body: expect.stringContaining('assistente virtual') }]);
+    await app.close();
+  });
+
+  it('rejects an official Meta payload with an invalid signature', async () => {
+    const app = buildApp({
+      environment: {
+        NODE_ENV: 'test',
+        PORT: 3000,
+        WHATSAPP_VERIFY_TOKEN: 'test-token-123',
+        META_APP_SECRET: 'meta-app-secret',
+      },
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/whatsapp',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=invalid' },
+      payload: { object: 'whatsapp_business_account', entry: [] },
+    });
+
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('rejects an invalid webhook payload without processing a message', async () => {
+    const app = buildApp({
+      environment: { NODE_ENV: 'test', PORT: 3000, WHATSAPP_VERIFY_TOKEN: 'test-token-123' },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/whatsapp',
+      payload: { event: 'not-a-meta-webhook' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: 'Payload do webhook Meta inválido.' });
+    await app.close();
+  });
+
+  it('rejects webhook bodies above one megabyte', async () => {
+    const app = buildApp({
+      environment: { NODE_ENV: 'test', PORT: 3000, WHATSAPP_VERIFY_TOKEN: 'test-token-123' },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/whatsapp',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ messages: [], padding: 'x'.repeat(1_048_576) }),
+    });
+
+    expect(response.statusCode).toBe(413);
     await app.close();
   });
 });

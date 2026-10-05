@@ -79,17 +79,21 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     );
   }
 
-  async saveOutbound(conversationId: string, text: string): Promise<void> {
+  async saveOutbound(
+    conversationId: string,
+    text: string,
+    delivery?: { messageId: string; status: 'sent' | 'failed' },
+  ): Promise<void> {
     await this.request(
       'messages',
       {
         method: 'POST',
         body: JSON.stringify({
-          meta_message_id: `local-outbound:${crypto.randomUUID()}`,
+          meta_message_id: delivery?.messageId ?? `local-outbound:${crypto.randomUUID()}`,
           conversation_id: conversationId,
           direction: 'outbound',
           content: text,
-          delivery_status: 'pending_meta_connection',
+          delivery_status: delivery?.status ?? 'pending_meta_connection',
         }),
       },
       [201],

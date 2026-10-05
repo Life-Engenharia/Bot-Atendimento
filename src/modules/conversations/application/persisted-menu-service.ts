@@ -16,6 +16,10 @@ import { TriageAnalyzer } from './triage-analyzer.js';
 
 type BotResponse = MenuResponse | AdministrativeResponse;
 
+export type OutboundSender = {
+  sendText(to: string, body: string): Promise<{ messageId: string }>;
+};
+
 const consentMessage =
   'Olá! Tudo bem? Eu sou a assistente virtual da Life Engenharia. Posso te ajudar a organizar sua solicitação e encaminhá-la para o time responsável.\n\nPara isso, vou registrar as informações desta conversa. Podemos continuar?\n\n1. Sim, vamos lá\n2. Prefiro falar com uma pessoa';
 const routeMenu =
@@ -28,6 +32,7 @@ export class PersistedMenuService {
     private readonly store: SupabaseConversationStore,
     private readonly administrativeMenu?: AdministrativeMenuService,
     private readonly triageAnalyzer?: TriageAnalyzer,
+    private readonly outboundSender?: OutboundSender,
   ) {}
 
   async process(
@@ -165,8 +170,34 @@ export class PersistedMenuService {
       responseText =
         'Perfeito, recebi sua escolha. Vamos seguir com as próximas informações por aqui.';
     await this.store.saveConversation(conversation);
-    await this.store.saveOutbound(conversation.id, responseText);
+    await this.deliverOutbound(conversation, message.from, responseText);
     return { to: message.from, state: menuState(conversation), text: responseText };
+  }
+
+  private async deliverOutbound(
+    conversation: StoredConversation,
+    to: string,
+    text: string,
+  ): Promise<void> {
+    if (!this.outboundSender) {
+      await this.store.saveOutbound(conversation.id, text);
+      return;
+    }
+    try {
+      const result = await this.outboundSender.sendText(to, text);
+      await this.store.saveOutbound(conversation.id, text, { messageId: result.messageId, status: 'sent' });
+      await this.store.audit('meta.outbound_sent', 'system', {
+        conversationId: conversation.id,
+        metaMessageId: result.messageId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido ao enviar mensagem.';
+      await this.store.saveOutbound(conversation.id, text, { messageId: `failed-outbound:${crypto.randomUUID()}`, status: 'failed' });
+      await this.store.audit('meta.outbound_failed', 'system', {
+        conversationId: conversation.id,
+        error: message,
+      });
+    }
   }
 
   private async tryClassify(text: string): Promise<'commercial' | 'technical' | undefined> {

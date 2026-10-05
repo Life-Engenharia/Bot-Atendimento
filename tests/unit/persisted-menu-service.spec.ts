@@ -114,4 +114,26 @@ describe('persisted menu service', () => {
     expect(store.protocols).toEqual(['LFE-TEST-0001']);
     expect(store.outbound.at(-1)).toContain('LFE-TEST-0001');
   });
+
+  it('sends and audits the outbound response when an official Meta sender is configured', async () => {
+    const store = new FakeStore();
+    const sent: string[] = [];
+    const service = new PersistedMenuService(
+      store as unknown as SupabaseConversationStore,
+      undefined,
+      undefined,
+      {
+        sendText: async (_to, body) => {
+          sent.push(body);
+          return { messageId: 'wamid.outbound-1' };
+        },
+      },
+    );
+
+    await service.process([{ id: 'wamid-send-1', from: '5511999999999', text: 'Olá' }]);
+
+    expect(sent).toHaveLength(1);
+    expect(store.outbound).toHaveLength(1);
+    expect(store.audits).toContain('meta.outbound_sent');
+  });
 });
