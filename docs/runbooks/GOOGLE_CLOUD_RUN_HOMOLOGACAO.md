@@ -73,6 +73,39 @@ Invoke-WebRequest "https://URL_DO_CLOUD_RUN/health"
 
 O retorno esperado é `{"status":"ok"}`.
 
+## Painel administrativo em serviço separado
+
+O Cloud Run aceita uma porta por serviço. Por isso o painel é publicado como um
+**segundo serviço**, com imagem `Dockerfile.admin`, no mesmo projeto Supabase.
+Ele não deve receber os segredos Meta nem a URL de webhook.
+
+Crie também o segredo `bot-hml-admin-dashboard-token` (mínimo 24 caracteres) e
+publique o painel:
+
+```powershell
+$adminService = "bot-atendimento-admin-hml"
+$adminImage = "$region-docker.pkg.dev/$projectId/bot-atendimento/bot-atendimento-admin-hml:latest"
+
+gcloud builds submit --file Dockerfile.admin --tag $adminImage .
+
+gcloud run deploy $adminService `
+  --image $adminImage `
+  --region $region `
+  --platform managed `
+  --port 8080 `
+  --no-allow-unauthenticated `
+  --set-env-vars "NODE_ENV=production" `
+  --set-secrets "SUPABASE_URL=bot-hml-supabase-url:latest,SUPABASE_API=bot-hml-supabase-api:latest,ADMIN_DASHBOARD_TOKEN=bot-hml-admin-dashboard-token:latest"
+```
+
+Conceda `Cloud Run Invoker` somente aos usuários que administrarão o bot.
+Abra a URL retornada e informe a chave do painel. Localmente, rode `npm run
+admin:dev`; por padrão a porta é `ADMIN_PORT` (exemplo: `3001`).
+
+O painel configura responsáveis, escalas, horários, roteamento, regras P1–P4
+e política de retenção. A política de retenção é registrada e auditada; a
+eliminação automática de dados continua desativada até aprovação jurídica.
+
 ## 6. URL inicial e subdomínio definitivo
 
 Para o primeiro teste da Meta, use a URL HTTPS `run.app` retornada pelo Cloud Run. Ela já possui certificado válido e evita bloquear a homologação enquanto o DNS é preparado:

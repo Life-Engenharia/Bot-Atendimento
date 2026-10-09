@@ -30,4 +30,14 @@ describe('PloomesClient', () => {
     ]);
     expect(fetcher.mock.calls[0][0]).toContain('Deals@Pipelines?%24top=100&%24select=Id%2CName');
   });
+
+  it('selects the commercial pipeline only when there is exactly one option', async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ value: [{ Id: 50007488, Name: 'Vendas' }] }), { status: 200 }),
+    );
+    await expect(new PloomesClient('secret-key', fetcher).getActiveCommercialPipeline()).resolves.toEqual({
+      Id: 50007488,
+      Name: 'Vendas',
+    });
+  });
 });

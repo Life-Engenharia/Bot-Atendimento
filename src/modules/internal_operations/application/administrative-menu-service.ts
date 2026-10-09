@@ -5,7 +5,13 @@ export type AdministrativeResponse = {
 };
 
 export type OperationalSetting = {
-  key: 'responsaveis' | 'escalas' | 'horarios' | 'roteamento';
+  key:
+    | 'responsaveis'
+    | 'escalas'
+    | 'horarios'
+    | 'roteamento'
+    | 'prioridades'
+    | 'privacidade';
   value: Record<string, string>;
 };
 
@@ -151,6 +157,8 @@ function confirmationMessage(setting: OperationalSetting): string {
     escalas: 'escala',
     horarios: 'horário',
     roteamento: 'regra de roteamento',
+    prioridades: 'regra de prioridade',
+    privacidade: 'política de privacidade',
   };
   const details = Object.entries(setting.value)
     .map(([key, value]) => `• ${key}: ${value}`)

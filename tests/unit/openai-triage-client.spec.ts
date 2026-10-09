@@ -21,5 +21,15 @@ describe('OpenAiTriageClient', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer api-key' }),
       }),
     );
+    const request = fetcher.mock.calls[0]?.[1] as RequestInit;
+    const payload = JSON.parse(String(request.body));
+    expect(payload).toMatchObject({
+      model: 'model-id',
+      store: false,
+      input: 'Preciso de um orçamento',
+    });
+    expect(payload.instructions).toContain('Você é um classificador de mensagens');
+    expect(payload.instructions).toContain('Em caso de dúvida, escolha human.');
+    expect(payload.text.format).toMatchObject({ type: 'json_schema', strict: true });
   });
 });

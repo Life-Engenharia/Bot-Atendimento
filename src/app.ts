@@ -41,7 +41,14 @@ export type AppDependencies = {
   outboundSender?: OutboundSender;
 };
 
-const settingKeySchema = z.enum(['responsaveis', 'escalas', 'horarios', 'roteamento']);
+const settingKeySchema = z.enum([
+  'responsaveis',
+  'escalas',
+  'horarios',
+  'roteamento',
+  'prioridades',
+  'privacidade',
+]);
 const settingValuesSchema = z.object({ values: z.array(z.record(z.string(), z.string())) });
 
 export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {

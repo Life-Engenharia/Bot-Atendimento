@@ -26,6 +26,18 @@ export class PloomesClient {
     return this.list('Users');
   }
 
+  /**
+   * A homologação da Life possui um único funil comercial utilizável. Não
+   * escolhemos o primeiro de uma lista ambígua: se o CRM expuser mais de um,
+   * a seleção precisa ser aprovada no painel antes de criar oportunidades.
+   */
+  async getActiveCommercialPipeline(): Promise<PloomesOption> {
+    const pipelines = await this.listPipelines();
+    if (pipelines.length === 1) return pipelines[0];
+    if (pipelines.length === 0) throw new Error('Nenhum funil comercial foi encontrado no Ploomes.');
+    throw new Error('Há mais de um funil no Ploomes; configure explicitamente o funil comercial ativo.');
+  }
+
   private async list(path: string): Promise<PloomesOption[]> {
     const query = new URLSearchParams({ $top: '100', $select: 'Id,Name' });
     const response = await this.request<PloomesList<PloomesOption>>(`${path}?${query}`);

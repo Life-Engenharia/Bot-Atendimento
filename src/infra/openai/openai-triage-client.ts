@@ -2,6 +2,7 @@ import {
   TriageAnalysis,
   TriageAnalyzer,
 } from '../../modules/conversations/application/triage-analyzer.js';
+import { buildTriageInstructions } from '../../modules/conversations/application/prompts/triage-prompt.js';
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
@@ -24,11 +25,7 @@ export class OpenAiTriageClient implements TriageAnalyzer {
       body: JSON.stringify({
         model: this.model,
         store: false,
-        instructions:
-          'Classifique somente a intenção da mensagem para o atendimento da Life Engenharia. ' +
-          'Rotas possíveis: commercial para orçamento, contratação ou serviço avulso; ' +
-          'technical para assistência de cliente existente; human para pedido de pessoa, risco, ' +
-          'ambiguidade ou qualquer caso sem certeza. Não responda ao cliente.',
+        instructions: buildTriageInstructions(),
         input: message.slice(0, 1_000),
         text: {
           format: {

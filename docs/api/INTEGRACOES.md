@@ -43,6 +43,14 @@ A documentação e o endpoint do Ploomes são públicos, mas isso **não comprov
 
 Antes da implementação, a Life deve fornecer: User-Key de homologação, IDs de funil/etapa, campos obrigatórios, chaves de campos personalizados e regra para localizar duplicidade.
 
+### Homologação verificada em 09/10/2026
+
+A autenticação Ploomes respondeu com sucesso. Há um único funil comercial
+disponível, **Vendas** (ID `50007488`), que o adaptador seleciona como funil
+ativo enquanto continuar sendo o único. A lista comercial continua em standby:
+o bot mantém a lista padrão no código, mas a criação de `Deal` só será ativada
+depois de aprovarem campos obrigatórios, etapa inicial e responsável comercial.
+
 ## Supabase
 
 Supabase fornece o PostgreSQL do bot e o armazenamento privado de anexos. Migrations em `supabase/migrations/` são a fonte de verdade para o banco. O procedimento está em `docs/runbooks/SUPABASE.md`.
@@ -50,11 +58,13 @@ Supabase fornece o PostgreSQL do bot e o armazenamento privado de anexos. Migrat
 - O backend usa credenciais de servidor; cliente WhatsApp nunca recebe chave privilegiada.
 - Anexos ficam em bucket privado, associados ao protocolo.
 - Acesso é liberado por URL assinada de vida curta somente após verificar a permissão do usuário.
-- Retenção proposta, ainda pendente de validação LGPD: 180 dias para conversas/protocolos e 90 dias para anexos.
+- Retenção proposta, ainda pendente de validação LGPD: 180 dias para conversas/protocolos e 90 dias para anexos. O painel permite registrar a política aprovada, mas não remove dados automaticamente até que haja aprovação jurídica, critérios de backup e procedimento de descarte auditável.
 
 ## OpenAI Responses API
 
 O backend chama `POST /v1/responses` com chave de servidor. A integração recebe somente contexto mínimo para extrair campos, resumir a triagem e sinalizar baixa confiança.
+
+O prompt de triagem de produção fica versionado em `src/modules/conversations/application/prompts/triage-prompt.ts`. O Prompt Object publicado no painel OpenAI serve apenas para testes e referência: a aplicação não depende do ID dele, pois Prompt Objects estão em descontinuação.
 
 Não pode classificar risco final, reduzir prioridade, definir SLA, realizar diagnóstico, chamar Ploomes ou Meta diretamente, alterar registros nem conceder acesso. Regras determinísticas do backend decidem estado, prioridade, handoff e permissões.
 
