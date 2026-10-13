@@ -16,11 +16,44 @@ export type StoredConversation = {
     contactPhone?: string;
     timeline?: string;
     need?: string;
+    contractReference?: string;
+    equipment?: string;
+    manufacturerModel?: string;
+    assetIdentifier?: string;
+    symptom?: string;
+    alarm?: string;
+    startedFrequency?: string;
+    operationalImpact?: string;
+    contingency?: string;
+    reportedRisk?: string;
   };
 };
 
+export type AppRole = 'admin' | 'coordination' | 'commercial' | 'technical' | 'on_call' | 'viewer';
+export type AppUser = { id: string; name: string; email: string; passwordHash: string; role: AppRole; area: 'commercial' | 'technical' | 'on_call' | 'coordination'; active: boolean };
+
 type Contact = { id: string };
 type StoredMessage = { id: string };
+
+export type OperatorConversation = {
+  id: string;
+  state: StoredConversation['state'];
+  route: StoredConversation['route'];
+  assignedOperator: string | null;
+  contactPhone: string;
+  contactName: string | null;
+  updatedAt: string;
+  destinationArea?: string | null;
+  handoffReason?: string | null;
+  suggestedPriority?: 'P1' | 'P2' | 'P3' | 'P4' | null;
+  followUpAt?: string | null;
+};
+
+export type OperatorConversationDetail = OperatorConversation & {
+  messages: Array<{ id: string; direction: 'inbound' | 'outbound'; content: string | null; receivedAt: string }>;
+  context: StoredConversation['context'];
+  notes: Array<{ id: string; author: string; content: string; createdAt: string }>;
+};
 
 export class SupabaseConversationStore implements OperationalConfigurationStore {
   constructor(
@@ -203,17 +236,144 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [201],
     );
+    const assignee = await this.findEligibleUser('commercial');
     await this.request(
       `conversations?id=eq.${encodeURIComponent(conversation.id)}`,
-      { method: 'PATCH', body: JSON.stringify({ protocol_id: protocolId, state: 'queued' }) },
+      { method: 'PATCH', body: JSON.stringify({ protocol_id: protocolId, state: 'queued', destination_area: 'commercial', assigned_user_id: assignee?.id ?? null, handoff_reason: 'commercial_protocol' }) },
       [204],
     );
     await this.audit('commercial.protocol_queued', 'customer', {
       protocolId,
       reference,
-      route: 'commercial',
+      route: 'commercial', assignedUserId: assignee?.id,
     });
     return reference;
+  }
+
+  async createTechnicalProtocol(
+    conversation: StoredConversation,
+    priority: 'P1' | 'P2' | 'P3' | 'P4',
+    reason: string,
+  ): Promise<string> {
+    const context = conversation.context;
+    const required = ['equipment', 'manufacturerModel', 'symptom', 'startedFrequency', 'operationalImpact', 'contingency', 'reportedRisk'] as const;
+    if (required.some((field) => !context[field])) throw new Error('A pré-triagem técnica ainda está incompleta.');
+    const reference = `LFE-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const protocols = await this.request<Array<{ id: string }>>('protocols', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ reference, type: 'technical', status: 'new', suggested_priority: priority }) }, [201]);
+    const protocolId = protocols[0]?.id;
+    if (!protocolId) throw new Error('O Supabase não retornou o protocolo técnico criado.');
+    await this.request('technical_tickets', { method: 'POST', body: JSON.stringify({ protocol_id: protocolId, contract_reference: context.contractReference ?? null, equipment: context.equipment, manufacturer_model: context.manufacturerModel, asset_identifier: context.assetIdentifier ?? null, symptom: context.symptom, alarm: context.alarm ?? null, started_frequency: context.startedFrequency, operational_impact: context.operationalImpact, contingency: context.contingency, reported_risk: context.reportedRisk, priority_reason: reason }) }, [201]);
+    const destination = priority === 'P1' || priority === 'P2' ? 'on_call' : 'technical';
+    const assignee = await this.findEligibleUser(destination);
+    await this.request(`conversations?id=eq.${encodeURIComponent(conversation.id)}`, { method: 'PATCH', body: JSON.stringify({ protocol_id: protocolId, state: 'queued', destination_area: destination, assigned_user_id: assignee?.id ?? null, handoff_reason: `priority_${priority}` }) }, [204]);
+    await this.audit('technical.protocol_queued', 'system', { protocolId, reference, priority, destination, assignedUserId: assignee?.id });
+    return reference;
+  }
+
+  async listUsers(): Promise<AppUser[]> {
+    const rows = await this.request<Array<{ id: string; name: string; email: string; password_hash: string; role: AppRole; area: AppUser['area']; active: boolean }>>('app_users?select=id,name,email,password_hash,role,area,active&order=name.asc', {}, [200]);
+    return rows.map((row) => ({ id: row.id, name: row.name, email: row.email, passwordHash: row.password_hash, role: row.role, area: row.area, active: row.active }));
+  }
+
+  async createUser(user: Omit<AppUser, 'id'>): Promise<void> {
+    await this.request('app_users', { method: 'POST', body: JSON.stringify({ name: user.name, email: user.email.toLowerCase(), password_hash: user.passwordHash, role: user.role, area: user.area, active: user.active }) }, [201]);
+    await this.audit('user.created', 'admin-dashboard', { email: user.email, role: user.role, area: user.area });
+  }
+
+  async updateUser(id: string, update: Pick<AppUser, 'role' | 'area' | 'active'>): Promise<void> {
+    await this.request(`app_users?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ role: update.role, area: update.area, active: update.active }) }, [204]);
+    await this.audit('user.updated', 'admin-dashboard', { id, ...update });
+  }
+
+  async findUserByEmail(email: string): Promise<AppUser | undefined> {
+    const users = await this.request<Array<{ id: string; name: string; email: string; password_hash: string; role: AppRole; area: AppUser['area']; active: boolean }>>(`app_users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=id,name,email,password_hash,role,area,active`, {}, [200]);
+    const row = users[0];
+    return row ? { id: row.id, name: row.name, email: row.email, passwordHash: row.password_hash, role: row.role, area: row.area, active: row.active } : undefined;
+  }
+
+  async listOperatorConversations(areas?: string[]): Promise<OperatorConversation[]> {
+    const areaFilter = areas?.length ? `&destination_area=in.(${areas.map(encodeURIComponent).join(',')})` : '';
+    const rows = await this.request<
+      Array<{
+        id: string; state: OperatorConversation['state']; route: OperatorConversation['route'];
+        assigned_operator: string | null; destination_area: string | null; handoff_reason: string | null; updated_at: string; follow_up_at: string | null;
+        protocols: { suggested_priority: OperatorConversation['suggestedPriority'] } | null;
+        contacts: { phone_e164: string; name: string | null } | null;
+      }>
+    >(`conversations?state=in.(queued,human)${areaFilter}&select=id,state,route,assigned_operator,destination_area,handoff_reason,updated_at,follow_up_at,contacts(phone_e164,name),protocols(suggested_priority)&order=updated_at.desc`, {}, [200]);
+    return rows.map((row) => ({
+      id: row.id, state: row.state, route: row.route, assignedOperator: row.assigned_operator,
+      contactPhone: row.contacts?.phone_e164 ?? 'Contato indisponível', contactName: row.contacts?.name ?? null,
+      updatedAt: row.updated_at, destinationArea: row.destination_area, handoffReason: row.handoff_reason, suggestedPriority: row.protocols?.suggested_priority ?? null, followUpAt: row.follow_up_at,
+    }));
+  }
+
+  async getOperatorConversation(id: string): Promise<OperatorConversationDetail | undefined> {
+    const conversations = await this.request<Array<{
+      id: string; state: OperatorConversation['state']; route: OperatorConversation['route']; assigned_operator: string | null;
+      updated_at: string; destination_area: string | null; handoff_reason: string | null; follow_up_at: string | null; context: StoredConversation['context']; protocols: { suggested_priority: OperatorConversation['suggestedPriority'] } | null; contacts: { phone_e164: string; name: string | null } | null;
+    }>>(`conversations?id=eq.${encodeURIComponent(id)}&select=id,state,route,assigned_operator,destination_area,handoff_reason,updated_at,follow_up_at,context,contacts(phone_e164,name),protocols(suggested_priority)`, {}, [200]);
+    const row = conversations[0];
+    if (!row) return undefined;
+    const messages = await this.request<Array<{ id: string; direction: 'inbound' | 'outbound'; content: string | null; received_at: string }>>(
+      `messages?conversation_id=eq.${encodeURIComponent(id)}&select=id,direction,content,received_at&order=received_at.asc`, {}, [200],
+    );
+    const notes = await this.request<Array<{ id: string; author: string; content: string; created_at: string }>>(
+      `operator_notes?conversation_id=eq.${encodeURIComponent(id)}&select=id,author,content,created_at&order=created_at.desc`, {}, [200],
+    );
+    return {
+      id: row.id, state: row.state, route: row.route, assignedOperator: row.assigned_operator,
+      contactPhone: row.contacts?.phone_e164 ?? 'Contato indisponível', contactName: row.contacts?.name ?? null,
+      updatedAt: row.updated_at, destinationArea: row.destination_area, handoffReason: row.handoff_reason, suggestedPriority: row.protocols?.suggested_priority ?? null, followUpAt: row.follow_up_at,
+      context: row.context ?? {}, notes: notes.map((note) => ({ id: note.id, author: note.author, content: note.content, createdAt: note.created_at })),
+      messages: messages.map((message) => ({ ...message, receivedAt: message.received_at })),
+    };
+  }
+
+  async claimConversation(id: string, operator: string): Promise<boolean> {
+    const claimed = await this.request<Array<{ id: string }>>(
+      `conversations?id=eq.${encodeURIComponent(id)}&assigned_operator=is.null&state=in.(queued,human)`,
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ assigned_operator: operator, assigned_at: new Date().toISOString(), state: 'human' }) },
+      [200],
+    );
+    if (claimed.length) await this.audit('conversation.claimed', operator, { conversationId: id });
+    return claimed.length > 0;
+  }
+
+  async releaseConversation(id: string, operator: string): Promise<boolean> {
+    const released = await this.request<Array<{ id: string }>>(
+      `conversations?id=eq.${encodeURIComponent(id)}&assigned_operator=eq.${encodeURIComponent(operator)}`,
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ assigned_operator: null, assigned_at: null, state: 'queued' }) },
+      [200],
+    );
+    if (released.length) await this.audit('conversation.released', operator, { conversationId: id });
+    return released.length > 0;
+  }
+
+  async addOperatorNote(id: string, author: string, content: string): Promise<void> {
+    await this.request('operator_notes', { method: 'POST', body: JSON.stringify({ conversation_id: id, author, content }) }, [201]);
+    await this.audit('conversation.note_added', author, { conversationId: id });
+  }
+
+  async scheduleFollowUp(id: string, actor: string, followUpAt: string): Promise<void> {
+    await this.request(`conversations?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ follow_up_at: followUpAt }) }, [204]);
+    await this.audit('conversation.follow_up_scheduled', actor, { conversationId: id, followUpAt });
+  }
+
+  async closeConversation(id: string, actor: string, resolutionNote: string): Promise<void> {
+    await this.request(`conversations?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ state: 'closed', resolution_note: resolutionNote, follow_up_at: null }) }, [204]);
+    await this.audit('conversation.closed', actor, { conversationId: id });
+  }
+
+  async transferConversation(
+    id: string,
+    destination: 'commercial' | 'technical' | 'on_call' | 'coordination',
+    actor: string,
+  ): Promise<void> {
+    const assignee = destination === 'coordination' ? undefined : await this.findEligibleUser(destination);
+    await this.request(`conversations?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ destination_area: destination, assigned_operator: null, assigned_user_id: assignee?.id ?? null, state: 'queued', handoff_reason: `manual_transfer_${destination}` }) }, [204]);
+    await this.request('handoffs', { method: 'POST', body: JSON.stringify({ conversation_id: id, reason: 'manual_transfer', destination_area: destination, initiated_by: actor }) }, [201]);
+    await this.audit('conversation.transferred', actor, { conversationId: id, destination, assignedUserId: assignee?.id });
   }
 
   private async upsertContact(phone: string): Promise<Contact> {
@@ -227,6 +387,16 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       [200, 201],
     );
     return contacts[0];
+  }
+
+  private async findEligibleUser(area: 'commercial' | 'technical' | 'on_call'): Promise<Pick<AppUser, 'id' | 'name'> | undefined> {
+    const users = await this.request<Array<Pick<AppUser, 'id' | 'name'>>>(`app_users?area=eq.${area}&active=is.true&select=id,name&order=created_at.asc&limit=1`, {}, [200]);
+    if (users[0]) return users[0];
+    if (area === 'on_call') {
+      const technical = await this.request<Array<Pick<AppUser, 'id' | 'name'>>>('app_users?area=eq.technical&active=is.true&select=id,name&order=created_at.asc&limit=1', {}, [200]);
+      return technical[0];
+    }
+    return undefined;
   }
 
   private async findOrCreateConversation(contactId: string): Promise<StoredConversation> {

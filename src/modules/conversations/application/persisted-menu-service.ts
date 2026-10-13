@@ -140,6 +140,23 @@ export class PersistedMenuService {
           service,
         });
       }
+    } else if (conversation.state === 'collecting' && conversation.route === 'technical') {
+      const nextField = nextTechnicalField(conversation);
+      if (!nextField) throw new Error('Não há campo técnico pendente.');
+      if (!message.text?.trim()) responseText = technicalQuestion(nextField);
+      else {
+        conversation.context[nextField] = message.text.trim();
+        const following = nextTechnicalField(conversation);
+        if (following) responseText = technicalQuestion(following);
+        else {
+          const priority = suggestTechnicalPriority(conversation);
+          const reference = await this.store.createTechnicalProtocol(conversation, priority.level, priority.reason);
+          conversation.state = 'queued';
+          responseText = `Registramos a pré-triagem sob o protocolo ${reference}, com prioridade sugerida ${priority.level}. A equipe vai validar as informações e retornar por aqui. Em caso de risco imediato, mantenha o local seguro e acione também os procedimentos internos da unidade.`;
+          await this.store.recordHandoff(conversation, `technical_${priority.level}`, 'system');
+          await this.store.audit('technical.priority_suggested', 'rules', { phone: message.from, priority: priority.level, reason: priority.reason });
+        }
+      }
     } else if (conversation.state === 'collecting' && conversation.route === 'commercial') {
       const nextField = nextCommercialField(conversation);
       if (!nextField) throw new Error('Não há campo comercial pendente.');
@@ -222,6 +239,57 @@ const commercialFields: CommercialContextField[] = [
   'timeline',
   'need',
 ];
+
+type TechnicalContextField =
+  | 'contactName'
+  | 'company'
+  | 'location'
+  | 'contractReference'
+  | 'equipment'
+  | 'manufacturerModel'
+  | 'symptom'
+  | 'startedFrequency'
+  | 'operationalImpact'
+  | 'contingency'
+  | 'reportedRisk';
+
+const technicalFields: TechnicalContextField[] = [
+  'contactName', 'company', 'location', 'contractReference', 'equipment', 'manufacturerModel',
+  'symptom', 'startedFrequency', 'operationalImpact', 'contingency', 'reportedRisk',
+];
+
+function nextTechnicalField(conversation: StoredConversation): TechnicalContextField | undefined {
+  return technicalFields.find((field) => !conversation.context[field]);
+}
+
+function technicalQuestion(field: TechnicalContextField): string {
+  const questions: Record<TechnicalContextField, string> = {
+    contactName: 'Qual é o seu nome para identificação?',
+    company: 'Qual é a empresa ou instituição?',
+    location: 'Qual unidade/local será atendido e quem é o contato no local?',
+    contractReference: 'Há contrato ativo ou este equipamento já foi atendido pela Life? Se souber, informe o número; se não souber, escreva “não sei”.',
+    equipment: 'Qual é o equipamento afetado?',
+    manufacturerModel: 'Informe fabricante e modelo, se disponíveis. Caso não saiba, escreva “não identificado”.',
+    symptom: 'Descreva o que está acontecendo. Não tente abrir equipamentos ou alterar painéis.',
+    startedFrequency: 'Quando começou e acontece sempre ou de forma intermitente?',
+    operationalImpact: 'O equipamento está parado totalmente, parcialmente ou funcionando?',
+    contingency: 'Existe equipamento alternativo ou plano de contingência?',
+    reportedRisk: 'Há risco para pessoas, sangue, medicamentos ou uma operação essencial?',
+  };
+  return questions[field];
+}
+
+function suggestTechnicalPriority(conversation: StoredConversation): { level: 'P1' | 'P2' | 'P3' | 'P4'; reason: string } {
+  const context = conversation.context;
+  const value = `${context.operationalImpact} ${context.contingency} ${context.reportedRisk} ${context.symptom}`.toLocaleLowerCase('pt-BR');
+  const criticalRisk = /(risco|pessoas|sangue|medicamento|essencial|vida)/.test(value);
+  const stopped = /(parad|totalmente|inoperante)/.test(value);
+  const noBackup = /(sem conting|não.*alternativ|nao.*alternativ|nenhum)/.test(value);
+  if (criticalRisk && stopped && noBackup) return { level: 'P1', reason: 'Risco crítico informado, equipamento parado e sem contingência.' };
+  if (stopped || /(falha relevante|contingência limitada|contingencia limitada)/.test(value)) return { level: 'P2', reason: 'Parada ou impacto relevante informado; requer retorno humano prioritário.' };
+  if (/(parcial|reduz|intermitente|alarme)/.test(value)) return { level: 'P3', reason: 'Falha parcial ou desempenho reduzido informado.' };
+  return { level: 'P4', reason: 'Demanda sem interrupção crítica identificada na pré-triagem.' };
+}
 
 function nextCommercialField(conversation: StoredConversation): CommercialContextField | undefined {
   return commercialFields.find((field) => !conversation.context[field]);
