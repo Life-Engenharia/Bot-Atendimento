@@ -11,7 +11,8 @@ export type OperationalSetting = {
     | 'horarios'
     | 'roteamento'
     | 'prioridades'
-    | 'privacidade';
+    | 'privacidade'
+    | 'email';
   value: Record<string, string>;
 };
 
@@ -159,6 +160,7 @@ function confirmationMessage(setting: OperationalSetting): string {
     roteamento: 'regra de roteamento',
     prioridades: 'regra de prioridade',
     privacidade: 'política de privacidade',
+    email: 'configuração de e-mail',
   };
   const details = Object.entries(setting.value)
     .map(([key, value]) => `• ${key}: ${value}`)

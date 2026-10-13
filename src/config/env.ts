@@ -14,6 +14,9 @@ const environmentSchema = z
     WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
     ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
     ADMIN_DASHBOARD_TOKEN: z.string().min(24).optional(),
+    // A senha fica apenas no ambiente/Secret Manager. Os demais dados SMTP são
+    // configurados pelo administrador no painel e não incluem segredos.
+    SMTP_PASSWORD: z.string().min(1).optional(),
     PLOOMES_USER_KEY: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     OPENAI_MODEL: z.string().min(1).optional(),

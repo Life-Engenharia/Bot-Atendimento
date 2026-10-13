@@ -34,7 +34,10 @@
   "dependencies": {
     "@fastify/swagger": "^9.9.0",
     "@fastify/swagger-ui": "^5.2.6",
+    "@types/nodemailer": "^8.0.2",
     "fastify": "^5.6.0",
+    "nodemailer": "^10.1.0",
+    "pino-pretty": "^13.2.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

@@ -71,4 +71,46 @@ describe('admin app', () => {
       },
     ]);
   });
+
+  it('validates and persists SMTP settings without accepting a password in the dashboard', async () => {
+    const store = new ConfigurationStore();
+    const app = buildAdminApp({ environment, operationalConfigurationStore: store });
+    const headers = { authorization: `Bearer ${environment.ADMIN_DASHBOARD_TOKEN}` };
+
+    await expect(
+      app.inject({
+        method: 'PUT',
+        url: '/api/admin/settings/email',
+        headers,
+        payload: {
+          values: [
+            {
+              host: 'smtp.life.eng.br',
+              port: '587',
+              security: 'none',
+              user: 'informatica@life.eng.br',
+              from: 'informatica@life.eng.br',
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({ statusCode: 204 });
+
+    await expect(
+      app.inject({ method: 'POST', url: '/api/admin/email/test', headers, payload: { to: 'teste@life.eng.br' } }),
+    ).resolves.toMatchObject({ statusCode: 503 });
+
+    expect(store.values).toEqual([
+      {
+        key: 'email',
+        value: {
+          host: 'smtp.life.eng.br',
+          port: '587',
+          security: 'none',
+          user: 'informatica@life.eng.br',
+          from: 'informatica@life.eng.br',
+        },
+      },
+    ]);
+  });
 });
