@@ -3,6 +3,7 @@ import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { loadEnvironment, Environment } from './config/env.js';
@@ -17,6 +18,8 @@ import {
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
 import { AdministrativeMenuService } from './modules/internal_operations/application/administrative-menu-service.js';
 import { OpenAiTriageClient } from './infra/openai/openai-triage-client.js';
+import { OpenAiResponseRefiner } from './infra/openai/openai-response-refiner.js';
+import { MediaIngestionService } from './modules/conversations/application/media-ingestion-service.js';
 import { WhatsAppCloudClient } from './infra/meta/whatsapp-cloud-client.js';
 import { isValidMetaSignature, normalizeMetaWebhook } from './infra/meta/whatsapp-cloud-adapter.js';
 import type { OutboundSender } from './modules/conversations/application/persisted-menu-service.js';
@@ -28,6 +31,7 @@ import { adminDashboardHtml } from './modules/internal_operations/presentation/a
 import { operatorInboxHtml } from './modules/internal_operations/presentation/operator-inbox.js';
 import type { AppRole, AppUser } from './infra/supabase/conversation-store.js';
 import { PloomesClient } from './infra/ploomes/ploomes-client.js';
+import { CommercialPloomesSyncService } from './infra/ploomes/commercial-sync-service.js';
 import { SmtpEmailSender, smtpConfigurationFromSettings } from './infra/email/smtp-email-sender.js';
 
 declare module 'fastify' {
@@ -98,16 +102,29 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     environment.OPENAI_API_KEY && environment.OPENAI_MODEL
       ? new OpenAiTriageClient(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
       : undefined;
-  const outboundSender =
-    dependencies.outboundSender ??
-    (environment.META_ACCESS_TOKEN && environment.WHATSAPP_PHONE_NUMBER_ID
-      ? new WhatsAppCloudClient(environment.META_ACCESS_TOKEN, environment.WHATSAPP_PHONE_NUMBER_ID)
-      : undefined);
+  const responseRefiner =
+    environment.OPENAI_API_KEY && environment.OPENAI_MODEL
+      ? new OpenAiResponseRefiner(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
+      : undefined;
+  const whatsappClient = environment.META_ACCESS_TOKEN && environment.WHATSAPP_PHONE_NUMBER_ID
+    ? new WhatsAppCloudClient(environment.META_ACCESS_TOKEN, environment.WHATSAPP_PHONE_NUMBER_ID)
+    : undefined;
+  const outboundSender = dependencies.outboundSender ?? whatsappClient;
+  const mediaIngestionService = supabaseStore
+    ? new MediaIngestionService(supabaseStore, whatsappClient)
+    : undefined;
   const persistedMenuService =
     dependencies.persistedMenuService ??
     (supabaseStore
-      ? new PersistedMenuService(supabaseStore, administrativeMenu, triageAnalyzer, outboundSender)
+      ? new PersistedMenuService(supabaseStore, administrativeMenu, triageAnalyzer, outboundSender, responseRefiner, mediaIngestionService)
       : undefined);
+  const commercialSyncService =
+    supabaseStore && environment.PLOOMES_USER_KEY
+      ? new CommercialPloomesSyncService(
+        supabaseStore,
+        new PloomesClient(environment.PLOOMES_USER_KEY),
+      )
+      : undefined;
   const app = Fastify({
     logger: loggerOptions(environment),
     logController: logController(environment),
@@ -138,6 +155,10 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   });
 
   app.get('/health', async () => ({ status: 'ok' }));
+
+  app.get('/assets/life-logo.png', async (_request, reply) =>
+    reply.type('image/png').send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
+  );
 
   app.get('/admin', async (_request, reply) => {
     if (!operationalConfigurationStore || !environment.ADMIN_DASHBOARD_TOKEN)
@@ -238,6 +259,21 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     return reply.code(202).send({ accepted: true });
   });
 
+  app.post('/api/admin/jobs/ploomes-sync', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!commercialSyncService)
+      return reply.code(503).send({ error: 'Ploomes ou banco de dados ainda não configurado.' });
+    return commercialSyncService.run();
+  });
+
+  app.post('/api/admin/jobs/escalations', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Banco de dados ainda não configurado.' });
+    return supabaseStore.runDueEscalations();
+  });
+
   app.post<{ Body: unknown }>('/api/operator/login', async (request, reply) => {
     if (!supabaseStore || !environment.ADMIN_DASHBOARD_TOKEN) return reply.code(503).send({ error: 'Painel não configurado.' });
     const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(request.body);
@@ -276,15 +312,99 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.get('/operator', async (_request, reply) => {
     if (!supabaseStore || !environment.ADMIN_DASHBOARD_TOKEN)
       return reply.code(503).type('text/plain').send('Painel de atendimento não configurado.');
-    return reply.type('text/html; charset=utf-8').send(operatorInboxHtml);
+    const enhancements = `<style>
+      .commercial.active{display:block;grid-column:2/-1}
+      .history-tools{display:flex;gap:6px;margin-top:7px}.history-tools button{flex:1}
+      .history-state{margin:8px 0 0;color:#607583;font-size:11px}
+    </style><script>
+      (()=>{
+        const token=()=>sessionStorage.getItem('operatorToken');
+        const fetchHistory=async()=>{
+          const response=await fetch('/api/operator/conversations?includeClosed=true',{headers:{Authorization:'Bearer '+token()}});
+          if(!response.ok)throw Error('Não foi possível carregar o histórico.');
+          return (await response.json()).filter(item=>item.state==='closed');
+        };
+        const renderHistory=async()=>{
+          const list=document.getElementById('list'), title=document.querySelector('.queue-head h1');
+          title.firstChild.textContent='Histórico de atendimentos ';
+          list.innerHTML='<li class="meta" style="padding:10px">Carregando atendimentos encerrados…</li>';
+          try{
+            const rows=await fetchHistory(); list.innerHTML='';
+            if(!rows.length){list.innerHTML='<li class="meta" style="padding:10px">Nenhum atendimento encerrado ainda.</li>';return}
+            rows.forEach(c=>{const item=document.createElement('li');item.className='item';item.innerHTML='<strong>'+String(c.contactName||c.contactPhone).replace(/[&<>"\\']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]))+'</strong><div class="meta"><span>Encerrado em '+new Date(c.updatedAt).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})+'</span></div>';item.onclick=async()=>{await window.open(c.id);document.getElementById('composer').classList.add('hidden');document.getElementById('claim').classList.add('hidden');document.getElementById('more').classList.add('hidden');document.getElementById('orientation').textContent='Atendimento encerrado — histórico somente para consulta'};list.append(item)})
+          }catch(error){list.innerHTML='<li class="meta" style="padding:10px">'+error.message+'</li>'}
+        };
+        const active=()=>{document.querySelector('.queue-head h1').firstChild.textContent='Fila humana ';document.getElementById('composer').classList.remove('hidden');document.getElementById('claim').classList.remove('hidden');document.getElementById('more').classList.remove('hidden');document.getElementById('refresh').click()};
+        const tools=document.createElement('div');tools.className='history-tools';tools.innerHTML='<button type="button" class="btn alt">Fila ativa</button><button type="button" class="btn alt">Histórico</button>';
+        tools.children[0].onclick=active;tools.children[1].onclick=renderHistory;document.querySelector('.queue-head .tools').after(tools);
+        const commercialNav=document.getElementById('commercialNav');
+        const remarketingNav=document.createElement('button');
+        remarketingNav.id='remarketingNav';remarketingNav.dataset.view='remarketing';remarketingNav.className='hidden';remarketingNav.innerHTML='<span>Remarketing</span>';
+        commercialNav.after(remarketingNav);
+        const remarketingView=document.createElement('main');
+        remarketingView.id='remarketingView';remarketingView.className='commercial';
+        remarketingView.innerHTML='<div class="commercial-head"><div><p class="eyebrow">Relacionamento</p><h1>Remarketing</h1><p class="muted">Mensagens prontas para retomar conversas e oportunidades que não avançaram.</p></div></div><div class="crm-layout"><section class="panel"><h2>Primeiro retorno</h2><button class="record remarketing-copy" data-copy="Olá, {{nome}}! Tudo bem? Aqui é da Life Engenharia. Ficamos à disposição para retomar sua solicitação e esclarecer qualquer dúvida."><b>Retomar o contato</b><span>Para quem pediu informações e não avançou.</span></button><button class="record remarketing-copy" data-copy="Olá, {{nome}}! Passando para saber se ainda podemos ajudar com sua demanda. Podemos ajustar a proposta ao momento da sua operação."><b>Oportunidade sem fechamento</b><span>Para propostas sem retorno.</span></button><button class="record remarketing-copy" data-copy="Olá, {{nome}}! A Life Engenharia segue à disposição. Se houver uma nova necessidade, podemos avaliar o melhor caminho para sua operação."><b>Relacionamento pós-proposta</b><span>Mensagem leve para manter o vínculo.</span></button></section><section class="panel"><h2>Uso responsável</h2><div style="padding:16px" class="muted">Revise o nome, o contexto e a autorização de contato antes de enviar. As mensagens são modelos: personalize-as para cada cliente.</div></section></div>';
+        document.getElementById('app').append(remarketingView);
+        const editor=document.createElement('section');editor.className='panel';editor.id='remarketingEditor';editor.innerHTML='<h2>Mensagem selecionada</h2><div style="padding:16px"><label class="field">Personalize antes de copiar<textarea id="remarketingText" rows="7" placeholder="Escolha um modelo à esquerda."></textarea></label><button id="copyRemarketing" type="button" class="btn" style="margin-top:12px">Copiar mensagem</button><p id="remarketingFeedback" class="muted" style="font-size:11px"></p></div>';remarketingView.querySelector('.crm-layout').append(editor);
+        const addCommercialBlocks=async()=>{
+          const root=document.getElementById('crmContent');if(!root||root.dataset.operationalBlocks)return;
+          if(!root.querySelector('.crm-summary'))return;
+          root.dataset.operationalBlocks='loading';
+          let operational=[];
+          try{const response=await fetch('/api/operator/conversations',{headers:{Authorization:'Bearer '+token()}});if(response.ok)operational=await response.json()}catch{}
+          if(root.dataset.operationalBlocks!=='loading')return;
+          root.dataset.operationalBlocks='true';
+          const leads=operational.filter(x=>x.route==='commercial'||x.destinationArea==='commercial').slice(0,8);
+          const returns=operational.filter(x=>x.followUpAt).sort((a,b)=>new Date(a.followUpAt)-new Date(b.followUpAt)).slice(0,8);
+          const item=(x,kind)=>'<button class="record"><b>'+String(x.contactName||x.contactPhone||'Contato sem nome').replace(/[&<>"\\']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]))+'</b><span>'+(kind==='lead'?'Origem: Bot · '+(x.handoffReason||'interesse comercial'):'Retorno: '+new Date(x.followUpAt).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}))+'</span></button>';
+          root.insertAdjacentHTML('beforeend','<div class="crm-layout"><section class="panel"><h2>Leads do Bot</h2>'+(leads.map(x=>item(x,'lead')).join('')||'<p class="muted" style="padding:16px">Nenhum lead recente do bot.</p>')+'</section><section class="panel"><h2>Retornos</h2>'+(returns.map(x=>item(x,'return')).join('')||'<p class="muted" style="padding:16px">Nenhum retorno agendado.</p>')+'</section></div>');
+          const operationalBlocks=root.lastElementChild, ploomesLayout=root.querySelector('.crm-layout');ploomesLayout.before(operationalBlocks);
+          try{
+            const crmResponse=await fetch('/api/operator/crm/overview',{headers:{Authorization:'Bearer '+token()}});const crm=await crmResponse.json();if(!crm.connected)return;
+            const layouts=root.querySelectorAll('.crm-layout'), panels=layouts[1]?.querySelectorAll('.panel');if(!panels)return;
+            const safe=value=>String(value||'Não informado').replace(/[&<>"\\']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[s]));const formatMoney=value=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0}).format(Number(value)||0);
+            const documentNumber=c=>String(c.CPF||c.Cpf||c.CNPJ||c.Cnpj||c.Document||c.TaxNumber||'').replace(/\\D/g,'');const person=c=>Boolean(c.CPF||c.Cpf)||documentNumber(c).length===11||(!c.CompanyName&&!c.LegalName&&!c.TradeName&&Boolean(c.Name));const contacts=crm.overview.contacts.slice(0,10);panels[0].innerHTML='<h2>Recentes no Ploomes · contatos</h2>'+contacts.map(c=>{const individual=person(c),company=c.CompanyName||c.LegalName||c.TradeName,name=c.ContactName||c.PersonName||c.Name,responsible=individual?'':(name&&name!==company?name:'Não informado'),place=[c.Address,c.Street,c.City,c.State,c.ZipCode].filter(Boolean).join(' · '),search=[company,name,documentNumber(c),place].join(' ').toLowerCase();return '<button class="record ploomes-record" data-search="'+safe(search)+'" data-place="'+safe(place)+'"><b>'+safe(individual?name:company)+'</b><span>'+(individual?'Pessoa física · CPF: '+safe(documentNumber(c)):'Empresa · CNPJ: '+safe(documentNumber(c)))+(individual?'':' · Responsável: '+safe(responsible))+'</span></button>'}).join('')||'<p class="muted" style="padding:16px">Nenhum contato recente.</p>';
+            const deals=crm.overview.deals.slice(0,10);panels[1].innerHTML='<h2>Recentes no Ploomes · oportunidades</h2>'+deals.map(d=>'<button class="record ploomes-record" data-search="'+safe([d.Title,d.Name,d.Stage?.Name,d.StageName].join(' ').toLowerCase())+'"><b>'+safe(d.Title||d.Name)+'</b><span>'+safe(d.Stage?.Name||d.StageName)+' · '+formatMoney(d.Amount)+'</span></button>').join('')||'<p class="muted" style="padding:16px">Nenhuma oportunidade recente.</p>';
+            const places=[...new Set(contacts.map(c=>[c.Address,c.Street,c.City,c.State].filter(Boolean).join(' · ')).filter(Boolean))].slice(0,30), toolbar=document.createElement('section');toolbar.className='panel';toolbar.style.marginTop='18px';toolbar.innerHTML='<div style="padding:14px 16px"><label class="field" style="margin:0">Pesquisar no Ploomes<input id="ploomesSearch" type="search" placeholder="Empresa, responsável, CPF, CNPJ ou oportunidade"></label><label class="field">Pesquisar locais<input id="ploomesLocationSearch" type="search" list="ploomesPlaces" placeholder="Cidade, estado ou endereço disponível no Ploomes"></label><datalist id="ploomesPlaces">'+places.map(place=>'<option value="'+safe(place)+'">').join('')+'</datalist><p id="ploomesSearchResult" class="muted" style="margin:8px 0 0;font-size:11px">Sugestões de locais são baseadas nos endereços registrados no Ploomes.</p></div>';
+            layouts[1].before(toolbar);const filterRecords=()=>{const general=document.getElementById('ploomesSearch').value.toLowerCase(),place=document.getElementById('ploomesLocationSearch').value.toLowerCase();let count=0;root.querySelectorAll('.ploomes-record').forEach(record=>{const visible=record.dataset.search.includes(general)&&String(record.dataset.place||'').toLowerCase().includes(place);record.classList.toggle('hidden',!visible);if(visible)count++});document.getElementById('ploomesSearchResult').textContent=count+' registro(s) encontrado(s). Sugestões de locais usam os endereços registrados no Ploomes.'};document.getElementById('ploomesSearch').oninput=filterRecords;document.getElementById('ploomesLocationSearch').oninput=filterRecords;
+          }catch{}
+        };
+        new MutationObserver(addCommercialBlocks).observe(document.getElementById('crmContent'),{childList:true,subtree:true});
+        remarketingNav.onclick=()=>{document.getElementById('queuePanel').classList.add('hidden');document.getElementById('queueView').classList.add('hidden');document.getElementById('commercialView').classList.remove('active');remarketingView.classList.add('active');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b===remarketingNav))};
+        commercialNav.addEventListener('click',()=>remarketingView.classList.remove('active'));
+        document.querySelector('[data-view="queue"]').addEventListener('click',()=>remarketingView.classList.remove('active'));
+        document.querySelectorAll('.remarketing-copy').forEach(button=>button.onclick=()=>{document.getElementById('remarketingText').value=button.dataset.copy;document.getElementById('remarketingFeedback').textContent='Personalize o nome e revise a mensagem antes de copiar.'});
+        document.getElementById('copyRemarketing').onclick=async()=>{const text=document.getElementById('remarketingText').value.trim(),feedback=document.getElementById('remarketingFeedback');if(!text){feedback.textContent='Escolha um modelo ou escreva uma mensagem.';return}try{await navigator.clipboard.writeText(text);feedback.textContent='Mensagem copiada. Revise o destinatário antes de enviar.'}catch{feedback.textContent='Selecione e copie o texto manualmente; seu navegador bloqueou a cópia automática.';document.getElementById('remarketingText').focus();document.getElementById('remarketingText').select()}};
+        const restoreSession=async()=>{
+          const savedToken=sessionStorage.getItem('operatorToken'), name=sessionStorage.getItem('operatorName'), role=sessionStorage.getItem('operatorRole');
+          if(!savedToken||!name||!role)return;
+          document.getElementById('accountName').textContent=name;
+          document.getElementById('accountRole').textContent=role+' · disponível para atender';
+          document.getElementById('commercialNav').classList.toggle('hidden',!['admin','coordination','commercial'].includes(role));
+          remarketingNav.classList.toggle('hidden',!['admin','coordination','commercial'].includes(role));
+          try{
+            await window.load();
+            document.getElementById('login').classList.add('hidden');
+            document.getElementById('app').classList.remove('hidden');
+          }catch{
+            sessionStorage.clear();
+          }
+        };
+        restoreSession();
+      })();
+    </script>`;
+    return reply.type('text/html; charset=utf-8').send(operatorInboxHtml.replace('</body>', `${enhancements}</body>`));
   });
 
-  app.get('/api/operator/conversations', async (request, reply) => {
+  app.get<{ Querystring: { includeClosed?: string } }>('/api/operator/conversations', async (request, reply) => {
     const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
     if (!actor)
       return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    return supabaseStore.listOperatorConversations(visibleAreas(actor));
+    return supabaseStore.listOperatorConversations(
+      visibleAreas(actor),
+      request.query.includeClosed === 'true',
+    );
   });
 
   app.get<{ Params: { id: string } }>('/api/operator/conversations/:id', async (request, reply) => {
@@ -297,6 +417,16 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     return canAccessConversation(actor, conversation.destinationArea) ? conversation : reply.code(403).send({ error: 'Seu cargo não pode acessar esta fila.' });
   });
 
+  app.get<{ Params: { id: string; attachmentId: string } }>('/api/operator/conversations/:id/attachments/:attachmentId/url', async (request, reply) => {
+    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
+    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode acessar este anexo.' });
+    const url = await supabaseStore.createAttachmentSignedUrl(conversation.id, request.params.attachmentId);
+    return url ? { url, expiresInSeconds: 300 } : reply.code(404).send({ error: 'Anexo não disponível para visualização.' });
+  });
+
   app.post<{ Params: { id: string } }>('/api/operator/conversations/:id/claim', async (request, reply) => {
     const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
     if (!actor)
@@ -306,7 +436,17 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     const conversation = await supabaseStore.getOperatorConversation(request.params.id);
     if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode assumir esta fila.' });
     const claimed = await supabaseStore.claimConversation(request.params.id, actor.name);
-    return claimed ? reply.code(204).send() : reply.code(409).send({ error: 'Esta conversa já foi assumida.' });
+    if (!claimed) return reply.code(409).send({ error: 'Esta conversa já foi assumida.' });
+    const handoffMessage = `Estamos passando para um atendimento humanizado. ${actor.name} assume a conversa e já pode ajudar você.`;
+    if (outboundSender) {
+      try {
+        const delivery = await outboundSender.sendText(conversation.contactPhone, handoffMessage);
+        await supabaseStore.saveOutbound(conversation.id, handoffMessage, { messageId: delivery.messageId, status: 'sent' });
+      } catch {
+        await supabaseStore.audit('conversation.handoff_notification_failed', actor.name, { conversationId: conversation.id });
+      }
+    }
+    return reply.code(204).send();
   });
 
   app.post<{ Params: { id: string } }>('/api/operator/conversations/:id/release', async (request, reply) => {
@@ -377,8 +517,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     if (conversation.assignedOperator !== actor.name)
       return reply.code(409).send({ error: 'Assuma a conversa antes de responder.' });
     const { text } = operatorMessageSchema.parse(request.body);
-    const delivery = await outboundSender.sendText(conversation.contactPhone, text);
-    await supabaseStore.saveOutbound(conversation.id, text, { messageId: delivery.messageId, status: 'sent' });
+    const signedText = `${actor.name}: ${text}`;
+    const delivery = await outboundSender.sendText(conversation.contactPhone, signedText);
+    await supabaseStore.saveOutbound(conversation.id, signedText, { messageId: delivery.messageId, status: 'sent' });
     await supabaseStore.audit('operator.message_sent', actor.name, { conversationId: conversation.id });
     return reply.code(201).send({ sent: true });
   });
