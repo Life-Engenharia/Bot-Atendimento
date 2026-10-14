@@ -1,4 +1,4 @@
-import { IncomingMessage } from '../../modules/webhook/application/webhook-processor.js';
+import { IncomingMedia, IncomingMessage } from '../../modules/webhook/application/webhook-processor.js';
 import type {
   OperationalConfigurationStore,
   OperationalSetting,
@@ -13,7 +13,15 @@ export type StoredConversation = {
     location?: string;
     contactName?: string;
     company?: string;
+    cnpj?: string;
     contactPhone?: string;
+    email?: string;
+    editingField?: string;
+    initialIntent?: string;
+    suggestedRoute?: 'commercial' | 'technical';
+    impactConfirmation?: string;
+    equipmentDomain?: 'hvac' | 'hemotherapy';
+    identifiedEquipment?: string;
     timeline?: string;
     need?: string;
     contractReference?: string;
@@ -35,6 +43,24 @@ export type AppUser = { id: string; name: string; email: string; passwordHash: s
 type Contact = { id: string };
 type StoredMessage = { id: string };
 
+export type CommercialSyncJob = {
+  id: string;
+  protocolId: string;
+  payload: {
+    protocolReference: string;
+    service: string;
+    contactName: string;
+    company?: string;
+    cnpj?: string;
+    phone?: string;
+    email?: string;
+    location: string;
+    timeline: string;
+    need: string;
+  };
+  attempts: number;
+};
+
 export type OperatorConversation = {
   id: string;
   state: StoredConversation['state'];
@@ -53,13 +79,14 @@ export type OperatorConversationDetail = OperatorConversation & {
   messages: Array<{ id: string; direction: 'inbound' | 'outbound'; content: string | null; receivedAt: string }>;
   context: StoredConversation['context'];
   notes: Array<{ id: string; author: string; content: string; createdAt: string }>;
+  attachments: Array<{ id: string; fileName: string; mediaType: string; status: string; createdAt: string }>;
 };
 
 export class SupabaseConversationStore implements OperationalConfigurationStore {
   constructor(
     private readonly url: string,
     private readonly serviceKey: string,
-  ) {}
+  ) { }
 
   async acceptInbound(
     message: IncomingMessage,
@@ -131,6 +158,35 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [201],
     );
+  }
+
+  async saveMediaAttachment(
+    conversation: StoredConversation,
+    media: IncomingMedia,
+    content: Uint8Array | undefined,
+    status: 'pending_connection' | 'stored' | 'failed',
+    errorMessage?: string,
+  ): Promise<void> {
+    const fileName = safeFileName(media.fileName ?? `${media.type}-${media.id}`);
+    const storagePath = `${conversation.id}/${crypto.randomUUID()}-${fileName}`;
+    const mediaType = media.mimeType ?? defaultMediaType(media.type);
+    if (content) {
+      await this.uploadPrivateObject(storagePath, mediaType, content);
+    }
+    await this.request('conversation_attachments', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversation_id: conversation.id,
+        storage_path: storagePath,
+        file_name: fileName,
+        media_type: mediaType,
+        size_bytes: content?.byteLength ?? 0,
+        source_media_id: media.id,
+        status,
+        error_message: errorMessage?.slice(0, 1_000),
+        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60_000).toISOString(),
+      }),
+    }, [201]);
   }
 
   async audit(eventType: string, actor: string, payload: Record<string, unknown>): Promise<void> {
@@ -236,6 +292,43 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [201],
     );
+    await this.request(
+      'commercial_sync_jobs',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          protocol_id: protocolId,
+          payload: {
+            protocolReference: reference,
+            service: context.service,
+            contactName: context.contactName ?? 'Contato não informado',
+            company: context.company,
+            cnpj: context.cnpj,
+            phone: context.contactPhone,
+            email: context.email,
+            location: context.location,
+            timeline: context.timeline,
+            need: context.need,
+          },
+        }),
+      },
+      [201],
+    );
+    const conversations = await this.request<Array<{ contact_id: string }>>(
+      `conversations?id=eq.${encodeURIComponent(conversation.id)}&select=contact_id`, {}, [200],
+    );
+    const contactId = conversations[0]?.contact_id;
+    if (contactId) {
+      await this.request(`contacts?id=eq.${encodeURIComponent(contactId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: context.contactName ?? null,
+          company: context.company === 'pessoa física' ? null : context.company ?? null,
+          email: context.email === 'não informado' ? null : context.email ?? null,
+          consented_at: new Date().toISOString(),
+        }),
+      }, [204]);
+    }
     const assignee = await this.findEligibleUser('commercial');
     await this.request(
       `conversations?id=eq.${encodeURIComponent(conversation.id)}`,
@@ -266,8 +359,63 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const destination = priority === 'P1' || priority === 'P2' ? 'on_call' : 'technical';
     const assignee = await this.findEligibleUser(destination);
     await this.request(`conversations?id=eq.${encodeURIComponent(conversation.id)}`, { method: 'PATCH', body: JSON.stringify({ protocol_id: protocolId, state: 'queued', destination_area: destination, assigned_user_id: assignee?.id ?? null, handoff_reason: `priority_${priority}` }) }, [204]);
+    if (priority === 'P1' || priority === 'P2') {
+      const dueAt = new Date(Date.now() + (priority === 'P1' ? 5 : 15) * 60_000).toISOString();
+      await this.request('handoff_escalations', {
+        method: 'POST',
+        body: JSON.stringify({ conversation_id: conversation.id, protocol_id: protocolId, priority, due_at: dueAt }),
+      }, [201]);
+    }
     await this.audit('technical.protocol_queued', 'system', { protocolId, reference, priority, destination, assignedUserId: assignee?.id });
     return reference;
+  }
+
+  async listPendingCommercialSyncJobs(limit = 10): Promise<CommercialSyncJob[]> {
+    const rows = await this.request<Array<{
+      id: string; protocol_id: string; payload: CommercialSyncJob['payload']; attempts: number;
+    }>>(
+      `commercial_sync_jobs?status=in.(pending,failed)&next_attempt_at=lte.${encodeURIComponent(new Date().toISOString())}&select=id,protocol_id,payload,attempts&order=created_at.asc&limit=${limit}`,
+      {},
+      [200],
+    );
+    return rows.map((row) => ({ id: row.id, protocolId: row.protocol_id, payload: row.payload, attempts: row.attempts }));
+  }
+
+  async markCommercialSyncCompleted(job: CommercialSyncJob, contactId: number, dealId: number): Promise<void> {
+    await this.request(`commercial_sync_jobs?id=eq.${encodeURIComponent(job.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString(), external_contact_id: String(contactId), external_deal_id: String(dealId), last_error: null }),
+    }, [204]);
+    await this.request(`commercial_requests?protocol_id=eq.${encodeURIComponent(job.protocolId)}`, {
+      method: 'PATCH', body: JSON.stringify({ ploomes_id: String(dealId), status: 'synced' }),
+    }, [204]);
+    await this.audit('commercial.ploomes_synced', 'ploomes', { protocolId: job.protocolId, contactId, dealId });
+  }
+
+  async markCommercialSyncFailed(job: CommercialSyncJob, error: string): Promise<void> {
+    const attempts = job.attempts + 1;
+    const retryMinutes = Math.min(60, 2 ** Math.min(attempts, 6));
+    await this.request(`commercial_sync_jobs?id=eq.${encodeURIComponent(job.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'failed', attempts, last_error: error.slice(0, 1_000), next_attempt_at: new Date(Date.now() + retryMinutes * 60_000).toISOString() }),
+    }, [204]);
+    await this.audit('commercial.ploomes_sync_failed', 'ploomes', { protocolId: job.protocolId, attempts, error: error.slice(0, 1_000) });
+  }
+
+  async runDueEscalations(): Promise<{ escalated: number }> {
+    const rows = await this.request<Array<{ id: string; conversation_id: string; protocol_id: string; priority: 'P1' | 'P2'; attempts: number }>>(
+      `handoff_escalations?status=eq.pending&due_at=lte.${encodeURIComponent(new Date().toISOString())}&select=id,conversation_id,protocol_id,priority,attempts&order=due_at.asc&limit=50`, {}, [200],
+    );
+    for (const escalation of rows) {
+      await this.request(`handoff_escalations?id=eq.${encodeURIComponent(escalation.id)}&status=eq.pending`, {
+        method: 'PATCH', body: JSON.stringify({ status: 'escalated', attempts: escalation.attempts + 1, escalated_at: new Date().toISOString() }),
+      }, [204]);
+      await this.request(`conversations?id=eq.${encodeURIComponent(escalation.conversation_id)}&assigned_operator=is.null`, {
+        method: 'PATCH', body: JSON.stringify({ destination_area: 'coordination', handoff_reason: `unacknowledged_${escalation.priority}` }),
+      }, [204]);
+      await this.audit('technical.escalation_due', 'scheduler', { protocolId: escalation.protocol_id, conversationId: escalation.conversation_id, priority: escalation.priority });
+    }
+    return { escalated: rows.length };
   }
 
   async listUsers(): Promise<AppUser[]> {
@@ -291,7 +439,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     return row ? { id: row.id, name: row.name, email: row.email, passwordHash: row.password_hash, role: row.role, area: row.area, active: row.active } : undefined;
   }
 
-  async listOperatorConversations(areas?: string[]): Promise<OperatorConversation[]> {
+  async listOperatorConversations(areas?: string[], includeClosed = false): Promise<OperatorConversation[]> {
     const areaFilter = areas?.length ? `&destination_area=in.(${areas.map(encodeURIComponent).join(',')})` : '';
     const rows = await this.request<
       Array<{
@@ -300,7 +448,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         protocols: { suggested_priority: OperatorConversation['suggestedPriority'] } | null;
         contacts: { phone_e164: string; name: string | null } | null;
       }>
-    >(`conversations?state=in.(queued,human)${areaFilter}&select=id,state,route,assigned_operator,destination_area,handoff_reason,updated_at,follow_up_at,contacts(phone_e164,name),protocols(suggested_priority)&order=updated_at.desc`, {}, [200]);
+    >(`conversations?state=in.(${includeClosed ? 'queued,human,closed' : 'queued,human'})${areaFilter}&select=id,state,route,assigned_operator,destination_area,handoff_reason,updated_at,follow_up_at,contacts(phone_e164,name),protocols(suggested_priority)&order=updated_at.desc`, {}, [200]);
     return rows.map((row) => ({
       id: row.id, state: row.state, route: row.route, assignedOperator: row.assigned_operator,
       contactPhone: row.contacts?.phone_e164 ?? 'Contato indisponível', contactName: row.contacts?.name ?? null,
@@ -321,13 +469,34 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const notes = await this.request<Array<{ id: string; author: string; content: string; created_at: string }>>(
       `operator_notes?conversation_id=eq.${encodeURIComponent(id)}&select=id,author,content,created_at&order=created_at.desc`, {}, [200],
     );
+    const attachments = await this.request<Array<{ id: string; file_name: string; media_type: string; status: string; created_at: string }>>(
+      `conversation_attachments?conversation_id=eq.${encodeURIComponent(id)}&select=id,file_name,media_type,status,created_at&order=created_at.asc`, {}, [200],
+    );
     return {
       id: row.id, state: row.state, route: row.route, assignedOperator: row.assigned_operator,
       contactPhone: row.contacts?.phone_e164 ?? 'Contato indisponível', contactName: row.contacts?.name ?? null,
       updatedAt: row.updated_at, destinationArea: row.destination_area, handoffReason: row.handoff_reason, suggestedPriority: row.protocols?.suggested_priority ?? null, followUpAt: row.follow_up_at,
       context: row.context ?? {}, notes: notes.map((note) => ({ id: note.id, author: note.author, content: note.content, createdAt: note.created_at })),
       messages: messages.map((message) => ({ ...message, receivedAt: message.received_at })),
+      attachments: attachments.map((attachment) => ({ id: attachment.id, fileName: attachment.file_name, mediaType: attachment.media_type, status: attachment.status, createdAt: attachment.created_at })),
     };
+  }
+
+  async createAttachmentSignedUrl(conversationId: string, attachmentId: string): Promise<string | undefined> {
+    const attachments = await this.request<Array<{ storage_path: string; status: string }>>(
+      `conversation_attachments?id=eq.${encodeURIComponent(attachmentId)}&conversation_id=eq.${encodeURIComponent(conversationId)}&select=storage_path,status`, {}, [200],
+    );
+    const attachment = attachments[0];
+    if (!attachment || attachment.status !== 'stored') return undefined;
+    const response = await fetch(new URL(`/storage/v1/object/sign/protocol-attachments/${attachment.storage_path}`, this.url), {
+      method: 'POST',
+      headers: { apikey: this.serviceKey, Authorization: `Bearer ${this.serviceKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: 300 }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`Não foi possível assinar o anexo privado (${response.status}).`);
+    const body = await response.json() as { signedURL?: string };
+    return body.signedURL ? new URL(body.signedURL, this.url).toString() : undefined;
   }
 
   async claimConversation(id: string, operator: string): Promise<boolean> {
@@ -440,4 +609,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const body = await response.text();
     return (body ? JSON.parse(body) : undefined) as T;
   }
+
+  private async uploadPrivateObject(path: string, mediaType: string, content: Uint8Array): Promise<void> {
+    const response = await fetch(new URL(`/storage/v1/object/protocol-attachments/${path}`, this.url), {
+      method: 'POST',
+      headers: { apikey: this.serviceKey, Authorization: `Bearer ${this.serviceKey}`, 'Content-Type': mediaType, 'x-upsert': 'false' },
+      body: Buffer.from(content),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`Não foi possível salvar a mídia privada (${response.status}).`);
+  }
+}
+
+function safeFileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180) || 'anexo';
+}
+
+function defaultMediaType(type: IncomingMedia['type']): string {
+  return ({ image: 'image/jpeg', audio: 'audio/ogg', video: 'video/mp4', document: 'application/octet-stream' })[type];
 }
