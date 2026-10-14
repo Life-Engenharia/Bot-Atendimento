@@ -1,13 +1,24 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { IncomingMessage } from '../../modules/webhook/application/webhook-processor.js';
+import { IncomingMedia, IncomingMessage } from '../../modules/webhook/application/webhook-processor.js';
 
 type MetaWebhookPayload = {
   entry?: Array<{
     changes?: Array<{
-      value?: { messages?: Array<{ id?: string; from?: string; text?: { body?: string } }> };
+      value?: { messages?: Array<MetaMessage> };
     }>;
   }>;
 };
+
+type MetaMessage = {
+  id?: string;
+  from?: string;
+  text?: { body?: string };
+  image?: MetaMedia;
+  audio?: MetaMedia;
+  video?: MetaMedia;
+  document?: MetaMedia;
+};
+type MetaMedia = { id?: string; mime_type?: string; filename?: string; caption?: string; sha256?: string };
 
 /** Verifica o corpo bruto antes de normalizar o evento recebido da Meta. */
 export function isValidMetaSignature(
@@ -22,14 +33,28 @@ export function isValidMetaSignature(
   return received.length === expectedBuffer.length && timingSafeEqual(received, expectedBuffer);
 }
 
-/** Extrai somente mensagens de texto tratadas pelo fluxo atual. */
+/** Extrai texto e referências de mídias; o binário é baixado separadamente e autenticado. */
 export function normalizeMetaWebhook(payload: MetaWebhookPayload): IncomingMessage[] {
   return (payload.entry ?? [])
     .flatMap((entry) => entry.changes ?? [])
     .flatMap((change) => change.value?.messages ?? [])
-    .flatMap((message) =>
-      message.id && message.from
-        ? [{ id: message.id, from: message.from, text: message.text?.body }]
-        : [],
-    );
+    .flatMap((message) => {
+      if (!message.id || !message.from) return [];
+      const media = toMedia(message);
+      return [{
+        id: message.id,
+        from: message.from,
+        text: message.text?.body ?? media[0]?.caption,
+        ...(media.length ? { media } : {}),
+      }];
+    });
+}
+
+function toMedia(message: MetaMessage): IncomingMedia[] {
+  const variants: Array<[IncomingMedia['type'], MetaMedia | undefined]> = [
+    ['image', message.image], ['audio', message.audio], ['video', message.video], ['document', message.document],
+  ];
+  return variants.flatMap(([type, media]) => media?.id ? [{
+    id: media.id, type, mimeType: media.mime_type, fileName: media.filename, caption: media.caption, sha256: media.sha256,
+  }] : []);
 }
