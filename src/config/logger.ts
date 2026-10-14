@@ -30,12 +30,12 @@ export function configureDevelopmentRequestLogging(
   if (environment.NODE_ENV !== 'development') return;
 
   app.addHook('onRequest', async (request) => {
-    request.log.info({ method: request.method, url: request.url }, `→ ${request.method} ${request.url}`);
+    request.log.info({ requestId: request.id, method: request.method, url: request.url }, `→ ${request.method} ${request.url}`);
   });
   app.addHook('onSend', async (request, reply, payload) => {
     const response = summarizeResponse(payload);
     request.log.info(
-      { method: request.method, url: request.url, statusCode: reply.statusCode, response },
+      { requestId: request.id, method: request.method, url: request.url, statusCode: reply.statusCode, response },
       `↳ resposta · ${response}`,
     );
     return payload;
@@ -44,6 +44,7 @@ export function configureDevelopmentRequestLogging(
     request.log.info(
       {
         method: request.method,
+        requestId: request.id,
         url: request.url,
         statusCode: reply.statusCode,
         durationMs: Number(reply.elapsedTime.toFixed(1)),
