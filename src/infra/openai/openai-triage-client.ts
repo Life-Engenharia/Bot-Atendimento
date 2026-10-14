@@ -13,7 +13,7 @@ export class OpenAiTriageClient implements TriageAnalyzer {
     private readonly apiKey: string,
     private readonly model: string,
     private readonly fetcher: typeof fetch = fetch,
-  ) {}
+  ) { }
 
   async classify(message: string): Promise<TriageAnalysis> {
     const response = await this.fetcher(OPENAI_RESPONSES_URL, {
