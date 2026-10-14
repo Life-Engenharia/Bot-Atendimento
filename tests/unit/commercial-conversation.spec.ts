@@ -17,6 +17,7 @@ describe('commercial conversation', () => {
       'PMOC',
       'Ana Silva',
       'Clínica Alfa',
+      '12345678000199',
       'São Paulo - Unidade Norte',
       '+5511999999999',
       'até 7 dias',

@@ -13,7 +13,7 @@ export class CommercialConversationService {
   private readonly conversations = new Map<string, CommercialConversation>();
   private protocolSequence = 0;
 
-  constructor(private readonly auditLog: InMemoryAuditLog) {}
+  constructor(private readonly auditLog: InMemoryAuditLog) { }
 
   start(customerPhone: string): CommercialConversation {
     const conversation: CommercialConversation = {
