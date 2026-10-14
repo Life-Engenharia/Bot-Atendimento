@@ -36,7 +36,7 @@ const humanMessage =
 export class MenuService {
   private readonly conversations = new Map<string, MenuConversation>();
 
-  constructor(private readonly auditLog: InMemoryAuditLog) {}
+  constructor(private readonly auditLog: InMemoryAuditLog) { }
 
   handle(phone: string, incomingText?: string): MenuResponse {
     const existing = this.conversations.get(phone);

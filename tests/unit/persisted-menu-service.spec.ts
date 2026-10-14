@@ -39,6 +39,10 @@ class FakeStore {
     this.protocols.push('LFE-TEST-0001');
     return 'LFE-TEST-0001';
   }
+  async createTechnicalProtocol(_conversation: StoredConversation) {
+    this.protocols.push('LFE-TEST-TECH-0001');
+    return 'LFE-TEST-TECH-0001';
+  }
 }
 
 describe('persisted menu service', () => {
@@ -56,6 +60,26 @@ describe('persisted menu service', () => {
     expect(store.audits).toContain('menu.consent_accepted');
     expect(store.outbound).toHaveLength(2);
     expect(repeated).toMatchObject({ processed: 0, duplicates: 1, responses: [] });
+  });
+
+  it('suggests technical routing from the initial message only after consent', async () => {
+    for (const [index, initialMessage] of [
+      'Meu chiller apagou',
+      'Meu ar não funciona',
+      'Minha CompoGuard queimou',
+    ].entries()) {
+      const store = new FakeStore();
+      const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+      const first = await service.process([{ id: `wamid-intent-${index}-1`, from: '+5511999999999', text: initialMessage }]);
+      const consent = await service.process([{ id: `wamid-intent-${index}-2`, from: '+5511999999999', text: '1' }]);
+      const accepted = await service.process([{ id: `wamid-intent-${index}-3`, from: '+5511999999999', text: 'sim' }]);
+
+      expect(first.responses[0].text).toContain('apoio técnico');
+      expect(consent.responses[0].text).toContain('assistência técnica');
+      expect(accepted.responses[0].text).toContain('qual é o seu nome');
+      expect(store.conversation).toMatchObject({ state: 'collecting', route: 'technical' });
+    }
   });
 
   it('transfers an unclassified route to a human queue', async () => {
@@ -101,7 +125,9 @@ describe('persisted menu service', () => {
       'São Paulo - Unidade Norte',
       'Ana Silva',
       'Clínica Alfa',
+      '12345678000199',
       '5511999999999',
+      'ana@clinicaalfa.com.br',
       'até 7 dias',
       'Preciso revisar o plano mensal.',
       'CONFIRMAR',
@@ -113,6 +139,58 @@ describe('persisted menu service', () => {
     expect(store.conversation.state).toBe('queued');
     expect(store.protocols).toEqual(['LFE-TEST-0001']);
     expect(store.outbound.at(-1)).toContain('LFE-TEST-0001');
+  });
+
+  it('preserves the technical context and routes a customer without Life history to assistance avulsa', async () => {
+    const store = new FakeStore();
+    store.conversation = {
+      ...store.conversation,
+      state: 'collecting',
+      route: 'technical',
+      context: { contactName: 'Ana', company: 'Clínica Alfa', location: 'Unidade Norte' },
+    };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    const result = await service.process([
+      { id: 'wamid-no-contract', from: '+5511999999999', text: 'não tenho contrato' },
+    ]);
+
+    expect(store.conversation).toMatchObject({ route: 'commercial', context: { service: 'Assistência avulsa', location: 'Unidade Norte' } });
+    expect(result.responses[0].text).toContain('assistência avulsa');
+    expect(store.audits).toContain('technical.assistance_avulsa_routed');
+  });
+
+  it('asks for technical confirmation and prioritizes critical stoppage without contingency as P1', async () => {
+    const store = new FakeStore();
+    store.conversation = {
+      ...store.conversation,
+      state: 'collecting',
+      route: 'technical',
+      context: {
+        contactName: 'Ana', company: 'Hospital Alfa', location: 'UTI', contractReference: '123',
+        equipment: 'Chiller', manufacturerModel: 'Modelo X', assetIdentifier: 'A-1', symptom: 'apagou de vez',
+        alarm: 'E3', startedFrequency: 'Hoje', operationalImpact: 'parado totalmente', contingency: 'não há alternativa',
+      },
+    };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    const review = await service.process([{ id: 'wamid-tech-review', from: '+5511999999999', text: 'há risco para pessoas' }]);
+    expect(review.responses[0].text).toContain('Prioridade sugerida: P1');
+    expect(store.conversation.state).toBe('review');
+
+    const confirmation = await service.process([{ id: 'wamid-tech-confirm', from: '+5511999999999', text: 'CONFIRMAR' }]);
+    expect(confirmation.responses[0].text).toContain('LFE-TEST-TECH-0001');
+    expect(store.conversation.state).toBe('queued');
+  });
+
+  it('responds warmly after a queued customer thanks the team', async () => {
+    const store = new FakeStore();
+    store.conversation = { ...store.conversation, state: 'queued', route: 'commercial', context: { service: 'PMOC' } };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    const result = await service.process([{ id: 'wamid-thanks', from: '+5511999999999', text: 'Muito obrigado!' }]);
+
+    expect(result.responses[0].text).toContain('Por nada');
   });
 
   it('sends and audits the outbound response when an official Meta sender is configured', async () => {
