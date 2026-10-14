@@ -24,6 +24,7 @@
     "simulate:commercial": "tsx scripts/simulate-whatsapp.ts",
     "simulate:human": "tsx scripts/simulate-whatsapp.ts --human",
     "simulate:memory": "tsx scripts/simulate-whatsapp.ts --memory",
+    "simulate:chat": "tsx scripts/simulate-terminal-chat.ts",
     "meta:check": "tsx scripts/check-meta-connection.ts",
     "meta:send-test": "tsx scripts/send-meta-test.ts",
     "meta:send-template": "tsx scripts/send-meta-template.ts",
