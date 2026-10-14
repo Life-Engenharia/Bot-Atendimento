@@ -25,8 +25,10 @@ Antes de iniciar um módulo, consulte:
 
 A fundação local está pronta: TypeScript, Fastify, configurações validadas, endpoint de saúde, migrations Supabase, auditoria e webhook simulado com deduplicação. Quando `SUPABASE_URL` e `SUPABASE_API` estão configuradas, o webhook persiste mensagens, contatos, conversas e eventos de auditoria.
 
-A integração inicial com Supabase está preparada. Consulte [o runbook](docs/runbooks/SUPABASE.md)
-para validar a conexão e aplicar migrations. O fluxo do bot ainda usa armazenamento em memória.
+A integração com Supabase persiste conversas, mensagens, protocolos, auditoria, fila humana,
+retornos e a outbox comercial. Consulte [o runbook](docs/runbooks/SUPABASE.md)
+para validar a conexão e aplicar migrations. Sem as credenciais, a aplicação continua em modo
+local de demonstração.
 
 ## Executar localmente
 
@@ -38,6 +40,22 @@ npm run dev
 ```
 
 O serviço responde em `GET /health`. O webhook simulado está em `GET` e `POST /webhooks/whatsapp`; ele ainda não se conecta à Meta. A documentação Swagger está em `http://localhost:3000/documentation` e sua fonte está em `docs/api/openapi.yaml`.
+
+## Mídias recebidas
+
+Quando a integração oficial do WhatsApp Cloud API estiver configurada, o webhook
+reconhece imagens, áudios, vídeos e documentos. Cada item é baixado com a
+autenticação do servidor, associado à conversa e guardado no bucket privado
+`protocol-attachments`, com limite de 10 MB por arquivo. O painel interno usa
+uma URL assinada que expira em cinco minutos; o arquivo nunca recebe um link
+público permanente.
+
+Se a integração Meta ainda não estiver configurada, a conversa não falha: a
+mídia fica registrada como `pending_connection` para acompanhamento interno.
+Falhas de download também ficam auditadas. Nesta etapa, o sistema preserva os
+originais, mas não transcreve áudio nem extrai conteúdo de documentos ou vídeos;
+essas automações exigem aprovação específica antes de enviar conteúdo sensível a
+um serviço de IA.
 
 ## Simular atendimentos
 
@@ -54,6 +72,18 @@ npm run simulate:human
 # Não grava nada no Supabase.
 npm run simulate:memory
 ```
+
+### Conversa livre no terminal
+
+Para conversar como se você fosse um cliente, sem Meta, Supabase ou Ploomes,
+execute:
+
+```bash
+npm run simulate:chat
+```
+
+Digite as mensagens normalmente. Use `/reiniciar` para abrir uma nova conversa
+e `/sair` para encerrar a simulação.
 
 Cada execução gera telefone e IDs de mensagem fictícios, exibindo o diálogo e
 interrompendo com erro se uma resposta, estado ou deduplicação divergir do esperado.
@@ -107,6 +137,28 @@ ser parametrizados para a Life. O comando abaixo somente consulta o CRM:
 npm run ploomes:discover
 ```
 
+Quando há exatamente um funil comercial disponível, uma solicitação confirmada
+entra primeiro na fila local `commercial_sync_jobs` e então cria ou vincula o
+contato e a oportunidade no Ploomes. Falhas temporárias não apagam o protocolo:
+elas recebem espera progressiva e podem ser reprocessadas por um administrador:
+
+```text
+POST /api/admin/jobs/ploomes-sync
+Authorization: Bearer <ADMIN_DASHBOARD_TOKEN>
+```
+
+O mesmo mecanismo registra P1/P2 sem atendimento. Execute o job em um agendador
+seguro a cada minuto para transferir itens vencidos à Coordenação e auditar a
+escalada:
+
+```text
+POST /api/admin/jobs/escalations
+Authorization: Bearer <ADMIN_DASHBOARD_TOKEN>
+```
+
+Antes de automatizar esses jobs, configure os responsáveis, backups e horários
+no painel administrativo e faça a aprovação operacional da Life.
+
 ## Classificação opcional com OpenAI
 
 A OpenAI não é necessária para o menu principal. Quando `OPENAI_API_KEY` e
@@ -114,6 +166,12 @@ A OpenAI não é necessária para o menu principal. Quando `OPENAI_API_KEY` e
 de roteamento. O backend envia somente o texto da mensagem, solicita uma rota
 estruturada e mantém `store: false`. Respostas com confiança abaixo de 80%, erro
 ou pedido de pessoa continuam sendo encaminhadas à fila humana.
+
+Com as mesmas variáveis configuradas, a IA também pode tornar mais naturais as
+mensagens de confirmação após a conversa já estar encaminhada. Perguntas,
+protocolos, rotas, prioridade, prazos e orientações técnicas continuam sendo
+controlados por regras do sistema; se a API estiver indisponível, o texto padrão
+é enviado sem interromper o atendimento.
 
 ```bash
 npm run openai:check

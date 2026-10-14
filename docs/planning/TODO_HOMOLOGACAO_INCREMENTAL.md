@@ -126,9 +126,9 @@
 
 ## Etapa 8 — Mídias e status da Meta
 
-- [ ] Reconhecer mensagens de imagem, áudio, documento e vídeo no payload oficial.
-- [ ] Baixar mídia da Meta de forma autenticada e armazenar em bucket privado.
-- [ ] Criar URLs assinadas de curta duração somente para usuários internos autorizados.
+- [x] Reconhecer mensagens de imagem, áudio, documento e vídeo no payload oficial.
+- [x] Baixar mídia da Meta de forma autenticada e armazenar em bucket privado.
+- [x] Criar URLs assinadas de curta duração somente para usuários internos autorizados.
 - [ ] Transcrever áudio quando a integração estiver aprovada; preservar original.
 - [ ] Extrair texto de PDF/DOCX/planilha quando suportado; encaminhar ilegíveis/protegidos a humano.
 - [ ] Tratar vídeos com limites de tamanho e duração; encaminhar para humano quando necessário.
