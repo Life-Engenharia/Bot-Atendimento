@@ -1,16 +1,1211 @@
 export const operatorInboxHtml = `<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atendimento | Life Engenharia</title><style>
-:root{--ink:#112331;--navy:#082335;--deep:#061b2a;--blue:#1574df;--cyan:#84bfff;--muted:#5d6d78;--line:#dce3e8;--paper:#fff;--pale:#f2f5f7;--success:#178468;--danger:#b8403d;--display:"Barlow Condensed","Arial Narrow",sans-serif;--body:Manrope,Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--pale);color:var(--ink);font:14px/1.5 var(--body);-webkit-font-smoothing:antialiased}.hidden{display:none!important}button,input,textarea,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #4ba4ff;outline-offset:3px}.brand{display:flex;align-items:center;gap:11px}.mark{display:grid;place-items:center;width:39px;height:39px;background:var(--blue);color:#fff;font:600 25px/1 var(--display)}.brand strong{display:block;color:#fff;font-size:15px;letter-spacing:-.3px}.brand small{display:block;margin-top:1px;color:#b6ccd9;font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.eyebrow{margin:0;color:#477898;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.muted{color:var(--muted)}.login-shell{display:grid;min-height:100vh;place-items:center;padding:24px;background:linear-gradient(135deg,#061b2a,#082335 55%,#114a73)}.login{width:min(100%,435px);padding:35px;background:#fff;box-shadow:0 26px 70px #0007}.login .brand{margin-bottom:35px}.login .brand strong{color:var(--navy)}.login .brand small{color:var(--muted)}.login h1{margin:8px 0;font:600 42px/.95 var(--display);letter-spacing:-.02em}.login label{display:block;margin:18px 0 7px;font-size:12px;font-weight:800}.login input,.composer textarea,.transfer-select{width:100%;border:1px solid #cbd6dd;background:#fff;padding:11px 12px;color:var(--ink)}.login input:focus,.composer textarea:focus,.transfer-select:focus{border-color:var(--blue);box-shadow:0 0 0 3px #1574df1d;outline:0}.button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;border:1px solid transparent;padding:10px 14px;background:var(--blue);color:#fff;font-size:12px;font-weight:800;transition:background .18s,transform .18s}.button:hover{background:#0964c9;transform:translateY(-1px)}.button.secondary{border-color:#cbd6dd;background:#fff;color:#26485d}.button.secondary:hover{background:var(--pale)}.notice{min-height:19px;margin:12px 0 0;color:var(--danger);font-size:12px}.notice.ok{color:var(--success)}.shell{display:grid;min-height:100vh;grid-template-columns:248px minmax(300px,380px) minmax(0,1fr)}.rail{display:flex;min-height:100vh;flex-direction:column;padding:27px 16px;background:var(--navy);color:#fff}.rail .brand{padding:0 9px}.nav-label{margin:46px 9px 10px;color:#9bb9cc;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.nav{display:grid;gap:4px}.nav-item{display:flex;align-items:center;gap:11px;width:100%;border:0;border-left:2px solid transparent;padding:12px 10px;background:transparent;color:#d9e6ed;text-align:left;font-weight:700}.nav-item:hover{background:#ffffff12}.nav-item.active{border-left-color:#7ebcff;background:#ffffff16;color:#fff}.nav-icon{display:grid;place-items:center;width:19px;height:19px;color:#8ec1ec;font-size:15px}.operator-card{margin-top:auto;border:1px solid #ffffff25;padding:13px;background:#ffffff0b}.operator-card b{display:block;font-size:13px}.operator-card span{display:block;margin-top:2px;color:#bbd0dd;font-size:11px}.inbox{min-width:0;border-right:1px solid var(--line);background:#fff}.inbox-head{padding:26px 22px 18px;border-bottom:1px solid var(--line)}.inbox-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.inbox h2{margin:5px 0 0;font:600 29px/.98 var(--display);letter-spacing:-.015em}.count{display:grid;min-width:25px;height:25px;place-items:center;background:#e4f1fb;color:#1763ad;font-size:11px;font-weight:800}.refresh{width:100%;margin-top:20px}.list{max-height:calc(100vh - 178px);margin:0;padding:9px;overflow:auto;list-style:none}.list li{position:relative;margin:2px 0;border-left:2px solid transparent;padding:14px 13px;cursor:pointer}.list li:hover{background:#f3f7f9}.list li.active{border-left-color:var(--blue);background:#eaf3fb}.list strong{display:block;font-size:13px}.tag{display:inline-block;margin-top:5px;background:#e8f0f4;color:#3d596c;padding:2px 7px;font-size:10px;font-weight:800;text-transform:capitalize}.conversation,.crm{display:flex;min-width:0;flex-direction:column;background:#fff}.crm{grid-column:2/-1}.empty{display:grid;min-height:100%;place-items:center;padding:35px;text-align:center}.empty-box{max-width:350px}.empty-icon{display:grid;width:59px;height:59px;place-items:center;margin:0 auto 19px;background:#e8f3fa;color:var(--blue);font-size:27px}.empty h1{margin:0 0 10px;font:600 44px/.95 var(--display);letter-spacing:-.02em}.detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:21px 28px 18px;border-bottom:1px solid var(--line)}.contact{display:flex;align-items:center;gap:12px}.avatar{display:grid;width:41px;height:41px;place-items:center;background:#d9edf9;color:#15547c;font-weight:800}.contact h2{margin:0;font-size:17px}.contact p{margin:3px 0 0;color:var(--muted);font-size:12px}.actions{display:flex;flex-wrap:wrap;gap:8px}.transfer-select{width:auto;min-width:147px;padding:8px;font-size:12px}.thread{display:flex;flex:1;flex-direction:column;gap:4px;padding:24px 28px;overflow:auto;background:#fbfcfd}.day{align-self:center;margin:5px 0 13px;color:#6e7e89;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.message{max-width:min(620px,78%);padding:11px 13px;border:1px solid #e0e8ed;border-radius:2px 12px 12px 12px;background:#fff;line-height:1.5;box-shadow:0 1px 2px #19344b0a}.message.outbound{align-self:flex-end;border-color:#cbe6da;border-radius:12px 2px 12px 12px;background:#e4f4ec}.composer-wrap{padding:16px 28px 23px;border-top:1px solid var(--line)}.composer{display:flex;align-items:end;gap:10px}.composer textarea{min-height:56px;resize:vertical;background:#f8fafb}.send{min-width:92px}.typing-hint{margin:7px 2px 0;color:#748590;font-size:10px}.crm{overflow:auto;background:#f7fafb}.crm-inner{width:min(1220px,100%);margin:0 auto;padding:34px}.crm-head{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:28px}.crm h1{margin:7px 0 0;font:600 45px/.9 var(--display);letter-spacing:-.02em}.crm-head p:last-child{margin:8px 0 0;color:var(--muted);font-size:12px}.crm-actions{display:flex;gap:8px}.crm-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line);background:#fff}.metric{min-height:119px;padding:21px;border-left:1px solid var(--line)}.metric:first-child{border-left:0}.metric span{display:block;color:#597180;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.metric strong{display:block;margin-top:13px;font:600 38px/.9 var(--display);letter-spacing:-.02em}.metric small{display:block;margin-top:9px;color:var(--muted);font-size:11px}.crm-columns{display:grid;grid-template-columns:1.35fr .9fr;gap:20px;margin-top:20px}.panel{border:1px solid var(--line);background:#fff}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 18px;border-bottom:1px solid var(--line)}.panel h2{margin:0;font:600 25px/.95 var(--display)}.panel-head span{color:var(--muted);font-size:11px}.stage-list{margin:0;padding:0;list-style:none}.stage-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1f3;padding:12px 18px;font-size:12px}.stage-list li:last-child{border:0}.stage-list b{font-size:12px}.stage-list span{color:var(--muted)}.table-wrap{overflow:auto}.deals{width:100%;border-collapse:collapse;font-size:12px}.deals th{padding:11px 14px;background:#f6f8f9;color:#567080;font-size:10px;letter-spacing:.08em;text-align:left;text-transform:uppercase}.deals td{max-width:220px;border-top:1px solid #edf1f3;padding:13px 14px;vertical-align:top}.deals tr:hover td{background:#fafcfd}.deal-name{display:block;font-weight:800}.deal-id{display:block;margin-top:2px;color:#72828d;font-size:10px}.amount{font-weight:800;white-space:nowrap}.source-list{padding:6px 18px 16px}.source-list div{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1f3;padding:11px 0;font-size:12px}.source-list div:last-child{border:0}.source-list b{max-width:60%;font-weight:600;text-align:right}.status{display:inline-flex;align-items:center;gap:6px;color:var(--success);font-size:11px;font-weight:800}.status:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.status.unavailable{color:#9a6a37}.raw{margin:0 18px 18px;border-top:1px solid var(--line);padding-top:12px}.raw summary{cursor:pointer;color:#365970;font-size:11px;font-weight:800}.raw pre{max-height:240px;margin:10px 0 0;overflow:auto;background:#061b2a;color:#d9e7ef;padding:12px;font:10px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;word-break:break-word}.deals .raw{margin:0;padding:0;border:0}.deals .raw pre{width:300px}.empty-crm{padding:30px}.empty-crm h2{font:600 28px/.95 var(--display)}@media(max-width:1050px){.shell{grid-template-columns:76px minmax(280px,345px) minmax(0,1fr)}.rail .brand strong,.rail .brand small,.nav-label,.nav-item span,.operator-card{display:none}.rail{padding:25px 10px}.rail .brand,.nav-item{justify-content:center}.crm-columns{grid-template-columns:1fr}.crm-inner{padding:24px}}@media(max-width:720px){.shell{display:block}.rail{min-height:auto;padding:12px 16px;flex-direction:row;align-items:center;gap:14px}.rail .brand{justify-content:flex-start}.rail .brand strong,.rail .brand small{display:block}.nav{display:flex;margin-left:auto}.nav-item{width:auto;padding:9px}.nav-item span{display:none}.inbox{border-right:0;border-bottom:1px solid var(--line)}.inbox-head{padding:17px}.list{max-height:230px}.detail-head,.thread,.composer-wrap{padding-left:17px;padding-right:17px}.actions{margin-top:4px}.detail-head{flex-direction:column}.crm-head{align-items:flex-start;flex-direction:column}.crm-grid{grid-template-columns:1fr}.metric{border-top:1px solid var(--line);border-left:0}.metric:first-child{border-top:0}.crm-inner{padding:18px}.composer{align-items:stretch;flex-direction:column}.send{width:100%}}.crm-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;border-bottom:1px solid var(--line)}.searchbox{display:flex;align-items:center;gap:9px;min-width:min(100%,360px);border:1px solid #cbd6dd;background:#fff;padding:0 11px;color:#476071}.searchbox input{width:100%;border:0;padding:10px 0;outline:0;background:transparent}.record-switch{display:flex;gap:4px}.record-switch button{border:0;background:transparent;padding:8px 10px;color:#567080;font-size:11px;font-weight:800}.record-switch button.active{background:#e7f1fa;color:#0f5d9f}.modal{position:fixed;z-index:20;inset:0;display:grid;place-items:center;padding:20px;background:#061b2a9e}.modal-card{width:min(760px,100%);max-height:min(84vh,800px);overflow:auto;background:#fff;box-shadow:0 28px 80px #0008}.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:25px 27px;border-bottom:1px solid var(--line)}.modal-head h2{margin:6px 0 0;font:600 34px/.95 var(--display)}.modal-close{display:grid;width:34px;height:34px;place-items:center;border:1px solid #cbd6dd;background:#fff;color:var(--ink);font-size:20px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;padding:8px 27px 27px}.detail-field{min-width:0;border-bottom:1px solid #e8edef;padding:14px 0}.detail-field:nth-child(odd){padding-right:22px}.detail-field:nth-child(even){padding-left:22px;border-left:1px solid #e8edef}.detail-field span{display:block;color:#627685;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.detail-field b{display:block;margin-top:5px;overflow-wrap:anywhere;font-size:13px;line-height:1.45}@media(max-width:720px){.crm-toolbar{align-items:stretch;flex-direction:column}.record-switch button{flex:1}.detail-grid{grid-template-columns:1fr;padding-left:18px;padding-right:18px}.detail-field:nth-child(n){padding-left:0;padding-right:0;border-left:0}.modal-head{padding:20px}}.queue-tools{display:grid;gap:8px;margin-top:13px}.queue-search,.queue-filter{width:100%;border:1px solid #cbd6dd;background:#fff;padding:9px 10px;font-size:12px}.priority{display:inline-block;margin:5px 5px 0 0;padding:2px 6px;font-size:10px;font-weight:900}.priority.P1,.priority.P2{background:#fde9e7;color:#a7352f}.priority.P3{background:#fff1d8;color:#9a6513}.priority.P4{background:#e8f1f6;color:#426579}.context-panel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;border-bottom:1px solid var(--line);background:var(--line)}.context-panel div{min-width:0;padding:10px 14px;background:#f8fafb}.context-panel span{display:block;color:#647784;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.context-panel b{display:block;overflow:hidden;margin-top:3px;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.notes{margin:0 28px 14px;padding:10px 12px;border-left:3px solid var(--blue);background:#f4f8fb}.notes h3{margin:0 0 6px;font-size:11px}.notes p{margin:4px 0;color:#536774;font-size:11px}.actions .danger{border-color:#e3b6b3;color:#a3342d}.actions .danger:hover{background:#fff1f0}@media(max-width:720px){.context-panel{grid-template-columns:1fr}.notes{margin-left:17px;margin-right:17px}}
-</style></head><body>
-<section id="login" class="login-shell"><div class="login"><div class="brand"><div class="mark">L</div><div><strong>Life Engenharia</strong><small>Central de atendimento</small></div></div><p class="eyebrow">Acesso corporativo</p><h1>Atendimento<br>Life</h1><p class="muted">Entre com seu usuário. As filas e informações comerciais respeitam seu cargo.</p><label for="operator">E-mail corporativo</label><input id="operator" type="email" autocomplete="email" placeholder="nome@life.eng.br" required><label for="token">Senha</label><input id="token" type="password" autocomplete="current-password" placeholder="Sua senha" required><button id="enter" class="button" style="width:100%;margin-top:21px">Entrar no atendimento <span>→</span></button><p id="loginNotice" class="notice"></p></div></section>
-<section id="app" class="shell hidden"><aside class="rail"><div class="brand"><div class="mark">L</div><div><strong>Life Engenharia</strong><small>Central de atendimento</small></div></div><p class="nav-label">Operação</p><nav class="nav" aria-label="Navegação principal"><button class="nav-item active" data-view="conversations"><span class="nav-icon">◉</span><span>Conversas</span></button><button id="crmNav" class="nav-item hidden" data-view="crm"><span class="nav-icon">◫</span><span>CRM comercial</span></button></nav><div class="operator-card"><b id="operatorName">Atendente</b><span>Disponível para atender</span></div></aside><aside id="inbox" class="inbox"><div class="inbox-head"><div class="inbox-title"><div><p class="eyebrow">Atendimento</p><h2>Fila de conversas</h2></div><span id="count" class="count">0</span></div><button id="refresh" class="button secondary refresh">↻ Atualizar fila</button><div class="queue-tools"><input id="queueSearch" class="queue-search" type="search" placeholder="⌕ Buscar nome ou telefone"><select id="queueFilter" class="queue-filter"><option value="">Todas as filas</option><option value="urgent">Prioridade P1/P2</option><option value="mine">Assumidas por mim</option><option value="commercial">Comercial</option><option value="technical">Técnica</option><option value="on_call">Plantão</option></select></div></div><ul id="list" class="list"></ul></aside><main id="conversationView" class="conversation"><div id="empty" class="empty"><div class="empty-box"><div class="empty-icon">✦</div><h1>Pronto para atender</h1><p class="muted">Selecione uma conversa para ver o contexto, assumir o atendimento e responder.</p></div></div><div id="detail" class="hidden" style="display:flex;flex:1;min-height:0;flex-direction:column"><header class="detail-head"><div class="contact"><div id="avatar" class="avatar">C</div><div><h2 id="title"></h2><p id="summary"></p></div></div><div class="actions"><button id="claim" class="button">Assumir</button><button id="release" class="button secondary">Devolver à fila</button><button id="note" class="button secondary">Nota</button><button id="followUp" class="button secondary">Retorno</button><button id="closeConversation" class="button secondary danger">Encerrar</button><select id="transferSelect" class="transfer-select hidden" aria-label="Setor para transferência"><option value="">Transferir para…</option><option value="commercial">Comercial</option><option value="technical">Técnica</option><option value="on_call">Plantão</option><option value="coordination">Coordenação</option></select><button id="transfer" class="button secondary hidden">Transferir</button></div></header><p id="notice" class="notice" style="padding:0 28px;margin:10px 0 -2px"></p><section id="customerContext" class="context-panel hidden"></section><section id="notes" class="notes hidden"></section><div id="messages" class="thread"></div><div class="composer-wrap"><form id="composer" class="composer"><textarea id="text" required placeholder="Digite sua mensagem ao cliente"></textarea><button class="button send">Enviar ↑</button></form><p class="typing-hint">A mensagem será enviada pelo número oficial da Life Engenharia.</p></div></div></main><div id="crmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><section class="modal-card"><header class="modal-head"><div><p id="modalKicker" class="eyebrow">CRM comercial</p><h2 id="modalTitle">Detalhes</h2></div><button id="modalClose" class="modal-close" aria-label="Fechar detalhes">×</button></header><div id="modalFields" class="detail-grid"></div></section></div><main id="crmView" class="crm hidden"><div id="crmContent" class="crm-inner"></div></main></section>
-<script>
-let selected=null,conversations=[],crmLoaded=false;const rolesWithCrm=['admin','coordination','commercial'];const auth=()=>({Authorization:'Bearer '+sessionStorage.getItem('operatorToken')});const api=async(path,init={})=>{const r=await fetch(path,{...init,headers:{...auth(),...(init.headers||{})}});if(!r.ok)throw Error((await r.json().catch(()=>({}))).error||'Não foi possível concluir a ação.');return r.status===204?null:r.json()};const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[x]));const initials=v=>(v||'C').split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();const currency=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0}).format(Number(v)||0);function setNotice(t,ok=false){const n=document.getElementById('notice');n.textContent=t;n.className='notice '+(ok?'ok':'')}
-let queueQuery='',queueFilter='';function renderList(){const list=document.getElementById('list');list.innerHTML='';const visible=conversations.filter(c=>{const hay=(c.contactName+' '+c.contactPhone+' '+c.route+' '+c.destinationArea).toLowerCase();if(queueQuery&&!hay.includes(queueQuery))return false;if(queueFilter==='urgent'&&!['P1','P2'].includes(c.suggestedPriority))return false;if(queueFilter==='mine'&&c.assignedOperator!==sessionStorage.getItem('operatorName'))return false;if(['commercial','technical','on_call'].includes(queueFilter)&&c.destinationArea!==queueFilter)return false;return true});document.getElementById('count').textContent=visible.length;visible.forEach(c=>{const li=document.createElement('li');if(selected&&selected.id===c.id)li.className='active';const priority=c.suggestedPriority?'<span class="priority '+c.suggestedPriority+'">'+c.suggestedPriority+'</span>':'';li.innerHTML='<strong>'+escapeHtml(c.contactName||c.contactPhone)+'</strong>'+priority+'<span class="tag">'+escapeHtml(c.destinationArea||c.route||'Atendimento')+'</span> <span class="muted">'+escapeHtml(c.assignedOperator?'Com '+c.assignedOperator:'Aguardando atendimento')+'</span>';li.onclick=()=>open(c.id);list.append(li)})}
-async function load(){conversations=await api('/api/operator/conversations');renderList();if(selected&&conversations.some(c=>c.id===selected.id))await open(selected.id)}async function open(id){selected=await api('/api/operator/conversations/'+id);document.getElementById('empty').classList.add('hidden');document.getElementById('detail').classList.remove('hidden');document.getElementById('title').textContent=selected.contactName||selected.contactPhone;document.getElementById('avatar').textContent=initials(selected.contactName||selected.contactPhone);document.getElementById('summary').textContent=(selected.route||'Atendimento')+' · '+(selected.assignedOperator?'Em atendimento por '+selected.assignedOperator:'Aguardando alguém assumir');const context=selected.context||{};const contextEntries=[['Empresa',context.company],['Serviço',context.service||context.equipment],['Local',context.location],['Contrato',context.contractReference],['Impacto',context.operationalImpact],['Retorno',selected.followUpAt?new Date(selected.followUpAt).toLocaleString('pt-BR'):null]].filter(x=>x[1]);const contextPanel=document.getElementById('customerContext');contextPanel.innerHTML=contextEntries.map(x=>'<div><span>'+escapeHtml(x[0])+'</span><b>'+escapeHtml(x[1])+'</b></div>').join('');contextPanel.classList.toggle('hidden',!contextEntries.length);const notes=document.getElementById('notes');notes.innerHTML=(selected.notes||[]).length?'<h3>Notas internas</h3>'+selected.notes.map(n=>'<p><b>'+escapeHtml(n.author)+':</b> '+escapeHtml(n.content)+'</p>').join(''):'';notes.classList.toggle('hidden',!(selected.notes||[]).length);document.getElementById('messages').innerHTML='<span class="day">Histórico da conversa</span>'+selected.messages.map(m=>'<div class="message '+(m.direction==='outbound'?'outbound':'')+'">'+escapeHtml(m.content||'[mensagem sem texto]')+'</div>').join('');renderList()}
-function activateView(view){const crm=view==='crm';document.getElementById('inbox').classList.toggle('hidden',crm);document.getElementById('conversationView').classList.toggle('hidden',crm);document.getElementById('crmView').classList.toggle('hidden',!crm);document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x.dataset.view===view));if(crm&&!crmLoaded)loadCrm()}
-const scalar=v=>typeof v==='string'||typeof v==='number'?String(v):'';const dealTitle=d=>scalar(d.Title)||scalar(d.Name)||scalar(d.ContactName)||'Oportunidade sem título';const dealStage=d=>scalar(d.Stage?.Name)||scalar(d.StageName)||(d.StageId?'Etapa '+d.StageId:'Não informada');const dealStatus=d=>scalar(d.Status?.Name)||scalar(d.StatusName)||(d.StatusId?'Status '+d.StatusId:'Não informado');function sourceState(v){return v==='ok'?'<span class="status">Disponível</span>':'<span class="status unavailable">Sem acesso</span>'}const clientName=c=>scalar(c.Name)||scalar(c.CompanyName)||scalar(c.LegalName)||scalar(c.TradeName)||'Cliente sem nome';const humanizeKey=k=>String(k).replace(/^@/,'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/Id$/,' código').replace(/^./,x=>x.toUpperCase());const displayValue=v=>{if(v===null||v===undefined||v==='')return'';if(typeof v==='string'||typeof v==='number'||typeof v==='boolean')return String(v);if(Array.isArray(v))return v.map(displayValue).filter(Boolean).join(' · ');if(typeof v==='object')return scalar(v.Name)||scalar(v.Title)||scalar(v.Value)||scalar(v.Label)||Object.values(v).map(displayValue).filter(Boolean).join(' · ');return''};
-async function loadCrm(){const root=document.getElementById('crmContent');root.innerHTML='<div class="crm-head"><div><p class="eyebrow">Ploomes CRM</p><h1>Visão comercial</h1><p>Carregando oportunidades e clientes…</p></div></div>';try{const response=await api('/api/operator/crm/overview');if(!response.connected){root.innerHTML='<div class="empty-crm"><p class="eyebrow">Ploomes CRM</p><h2>Integração pendente</h2><p class="muted">'+escapeHtml(response.reason)+'</p></div>';return}const o=response.overview,m=o.metrics;let mode='deals',query='';const sourceLine=(label,state)=>'<div><span>'+label+'</span>'+sourceState(state)+'</div>';const showModal=(kind,item)=>{const entries=Object.entries(item).filter(([key,value])=>!key.startsWith('@')&&displayValue(value));document.getElementById('modalKicker').textContent=kind==='client'?'Cliente no Ploomes':'Oportunidade no Ploomes';document.getElementById('modalTitle').textContent=kind==='client'?clientName(item):dealTitle(item);document.getElementById('modalFields').innerHTML=entries.map(([key,value])=>'<div class="detail-field"><span>'+escapeHtml(humanizeKey(key))+'</span><b>'+escapeHtml(displayValue(value))+'</b></div>').join('')||'<p class="muted">Não há campos adicionais disponíveis para este registro.</p>';document.getElementById('crmModal').classList.remove('hidden')};const renderRecords=()=>{const records=(mode==='deals'?o.deals:o.contacts).filter(record=>Object.values(record).some(value=>displayValue(value).toLocaleLowerCase('pt-BR').includes(query)));const isDeal=mode==='deals';document.getElementById('crmRecords').innerHTML='<div class="table-wrap"><table class="deals"><thead><tr><th>'+(isDeal?'Oportunidade':'Cliente')+'</th><th>'+(isDeal?'Etapa':'Contato')+'</th><th>'+(isDeal?'Status':'Localidade')+'</th><th>'+(isDeal?'Valor':'Código')+'</th><th></th></tr></thead><tbody>'+records.map((record,index)=>{const label=isDeal?dealTitle(record):clientName(record);const second=isDeal?dealStage(record):(scalar(record.Email)||scalar(record.Phone)||scalar(record.MobilePhone)||'Não informado');const third=isDeal?dealStatus(record):(scalar(record.City)||scalar(record.State)||scalar(record.Address)||'Não informado');const fourth=isDeal?currency(record.Amount):('ID '+(record.Id||'—'));return '<tr><td><span class="deal-name">'+escapeHtml(label)+'</span><span class="deal-id">Registro '+escapeHtml(record.Id||'—')+'</span></td><td>'+escapeHtml(second)+'</td><td>'+escapeHtml(third)+'</td><td class="amount">'+escapeHtml(fourth)+'</td><td><button class="button secondary record-detail" data-index="'+index+'">Abrir</button></td></tr>'}).join('')+(records.length?'':'<tr><td colspan="5">Nenhum resultado para esta busca.</td></tr>')+'</tbody></table></div>';document.querySelectorAll('.record-detail').forEach(button=>button.onclick=()=>showModal(isDeal?'deal':'client',records[Number(button.dataset.index)]))};const stages=m.byStage.slice(0,7).map(x=>'<li><span>'+escapeHtml(x.label)+'</span><b>'+x.count+'</b></li>').join('')||'<li><span>Sem etapas retornadas</span></li>';root.innerHTML='<div class="crm-head"><div><p class="eyebrow">Ploomes CRM</p><h1>Visão comercial</h1><p>'+escapeHtml(o.account?.Name||'Conta Ploomes')+' · atualização sob demanda</p></div><div class="crm-actions"><button id="crmRefresh" class="button secondary">↻ Atualizar dados</button></div></div><section class="crm-grid" aria-label="Resumo comercial"><div class="metric"><span>Oportunidades recentes</span><strong>'+m.totalDeals+'</strong><small>Últimas 100 retornadas</small></div><div class="metric"><span>Valor da amostra</span><strong>'+currency(m.totalAmount)+'</strong><small>Valores disponíveis</small></div><div class="metric"><span>Clientes disponíveis</span><strong>'+o.contacts.length+'</strong><small>Retornados pela consulta</small></div></section><section class="crm-columns"><article class="panel"><div class="panel-head"><h2>Carteira comercial</h2><span>Pesquisa e detalhes</span></div><div class="crm-toolbar"><label class="searchbox" for="crmSearch">⌕<input id="crmSearch" type="search" placeholder="Pesquisar oportunidade ou cliente"></label><div class="record-switch"><button id="dealTab" class="active">Oportunidades</button><button id="clientTab">Clientes</button></div></div><div id="crmRecords"></div></article><aside class="panel"><div class="panel-head"><h2>Etapas do funil</h2><span>Distribuição</span></div><ul class="stage-list">'+stages+'</ul><div class="panel-head"><h2>Conexão CRM</h2><span>Dados atualizados</span></div><div class="source-list">'+sourceLine('Conta Ploomes',o.sources.account)+sourceLine('Funis comerciais',o.sources.pipelines)+sourceLine('Usuários',o.sources.users)+sourceLine('Oportunidades',o.sources.deals)+sourceLine('Clientes',o.sources.contacts)+'</div></aside></section>';document.getElementById('crmRefresh').onclick=()=>{crmLoaded=false;loadCrm()};document.getElementById('crmSearch').oninput=e=>{query=e.target.value.trim().toLocaleLowerCase('pt-BR');renderRecords()};document.getElementById('dealTab').onclick=()=>{mode='deals';document.getElementById('dealTab').classList.add('active');document.getElementById('clientTab').classList.remove('active');renderRecords()};document.getElementById('clientTab').onclick=()=>{mode='clients';document.getElementById('clientTab').classList.add('active');document.getElementById('dealTab').classList.remove('active');renderRecords()};renderRecords();crmLoaded=true}catch(error){root.innerHTML='<div class="empty-crm"><p class="eyebrow">Ploomes CRM</p><h2>Não foi possível atualizar o CRM</h2><p class="muted">A fila de atendimento continua disponível. Tente atualizar novamente em instantes.</p><button id="crmRetry" class="button secondary" style="margin-top:16px">Tentar novamente</button></div>';document.getElementById('crmRetry').onclick=()=>loadCrm()}}
-document.getElementById('enter').onclick=async()=>{const email=document.getElementById('operator').value.trim(),password=document.getElementById('token').value;if(!email||!password)return;try{const r=await fetch('/api/operator/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});if(!r.ok)throw Error((await r.json()).error||'Não foi possível entrar.');const session=await r.json();sessionStorage.setItem('operatorToken',session.token);sessionStorage.setItem('operatorName',session.user.name);sessionStorage.setItem('operatorRole',session.user.role);document.getElementById('operatorName').textContent=session.user.name+' · '+session.user.role;const isManager=['admin','coordination'].includes(session.user.role);document.getElementById('transferSelect').classList.toggle('hidden',!isManager);document.getElementById('transfer').classList.toggle('hidden',!isManager);document.getElementById('crmNav').classList.toggle('hidden',!rolesWithCrm.includes(session.user.role));await load();document.getElementById('login').classList.add('hidden');document.getElementById('app').classList.remove('hidden')}catch(e){sessionStorage.clear();document.getElementById('loginNotice').textContent=e.message}};document.querySelectorAll('[data-view]').forEach(x=>x.onclick=()=>activateView(x.dataset.view));document.getElementById('refresh').onclick=()=>load().catch(e=>setNotice(e.message));document.getElementById('claim').onclick=async()=>{try{await api('/api/operator/conversations/'+selected.id+'/claim',{method:'POST'});await load();setNotice('Conversa assumida por você.',true)}catch(e){setNotice(e.message)}};document.getElementById('release').onclick=async()=>{try{await api('/api/operator/conversations/'+selected.id+'/release',{method:'POST'});await load();setNotice('Conversa devolvida à fila.',true)}catch(e){setNotice(e.message)}};document.getElementById('transfer').onclick=async()=>{const select=document.getElementById('transferSelect');if(!select.value)return setNotice('Escolha o setor de destino.');try{await api('/api/operator/conversations/'+selected.id+'/transfer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({destination:select.value})});await load();setNotice('Conversa transferida para '+select.options[select.selectedIndex].text+'.',true)}catch(e){setNotice(e.message)}};document.getElementById('composer').onsubmit=async e=>{e.preventDefault();const text=document.getElementById('text').value.trim();if(!text)return;try{await api('/api/operator/conversations/'+selected.id+'/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});document.getElementById('text').value='';await open(selected.id)}catch(e){setNotice(e.message)}};document.getElementById('modalClose').onclick=()=>document.getElementById('crmModal').classList.add('hidden');document.getElementById('crmModal').onclick=e=>{if(e.target.id==='crmModal')document.getElementById('crmModal').classList.add('hidden')};document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('crmModal').classList.add('hidden')});
-document.getElementById('queueSearch').oninput=e=>{queueQuery=e.target.value.trim().toLowerCase();renderList()};document.getElementById('queueFilter').onchange=e=>{queueFilter=e.target.value;renderList()};document.getElementById('note').onclick=async()=>{if(!selected)return;const text=prompt('Escreva uma nota interna:');if(!text)return;try{await api('/api/operator/conversations/'+selected.id+'/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});await open(selected.id);setNotice('Nota registrada.',true)}catch(e){setNotice(e.message)}};document.getElementById('followUp').onclick=async()=>{if(!selected)return;const value=prompt('Retorno em (AAAA-MM-DDTHH:MM):');if(!value)return;const followUpAt=new Date(value).toISOString();try{await api('/api/operator/conversations/'+selected.id+'/follow-up',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({followUpAt})});await open(selected.id);setNotice('Retorno agendado.',true)}catch(e){setNotice(e.message)}};document.getElementById('closeConversation').onclick=async()=>{if(!selected)return;const resolutionNote=prompt('Motivo do encerramento:');if(!resolutionNote)return;try{await api('/api/operator/conversations/'+selected.id+'/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolutionNote})});selected=null;await load();document.getElementById('detail').classList.add('hidden');document.getElementById('empty').classList.remove('hidden');setNotice('Atendimento encerrado.',true)}catch(e){setNotice(e.message)}};
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Central Life</title>
+<style>
+:root {
+  --navy: #082335;
+  --blue: #1574df;
+  --ink: #112331;
+  --muted: #5d6d78;
+  --line: #dce3e8;
+  --pale: #f3f6f8;
+  --bad: #a7352f;
+  --warn: #9a6513;
+  --ok: #178468;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--pale);
+  color: var(--ink);
+  font:
+    14px/1.45 Inter,
+    system-ui,
+    sans-serif;
+}
+.hidden {
+  display: none !important;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+.btn {
+  border: 1px solid transparent;
+  padding: 9px 12px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.btn.alt {
+  border-color: #cbd6dd;
+  background: #fff;
+  color: #26485d;
+}
+.btn.danger {
+  border-color: #e3b6b3;
+  background: #fff;
+  color: #a3342d;
+}
+.logo {
+  object-fit: contain;
+}
+.login {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #061b2a, #114a73);
+}
+.login-card {
+  width: min(460px, 100%);
+  padding: 36px;
+  background: #fff;
+  box-shadow: 0 26px 70px #0008;
+}
+.login-logo {
+  display: block;
+  width: 130px;
+  height: 100px;
+  margin: 0 auto 22px;
+}
+.eyebrow {
+  margin: 0;
+  color: #477898;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.login h1 {
+  margin: 8px 0;
+  font-size: 30px;
+}
+.muted {
+  color: var(--muted);
+}
+.field {
+  display: block;
+  margin-top: 15px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 11px;
+  border: 1px solid #cbd6dd;
+}
+.notice {
+  min-height: 19px;
+  margin: 10px 0;
+  color: var(--bad);
+  font-size: 12px;
+}
+.notice.ok {
+  color: var(--ok);
+}
+.app {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 220px 350px minmax(0, 1fr);
+}
+.rail {
+  display: flex;
+  flex-direction: column;
+  padding: 22px 12px;
+  background: var(--navy);
+  color: #fff;
+}
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 7px;
+}
+.rail-brand img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+.rail-brand strong {
+  display: block;
+}
+.rail-brand small {
+  color: #b7cedd;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.nav {
+  display: grid;
+  gap: 4px;
+  margin-top: 34px;
+}
+.nav button {
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: 12px 10px;
+  background: transparent;
+  color: #d8e6ed;
+  text-align: left;
+  font-weight: 750;
+}
+.nav button.active {
+  border-left-color: #7ebcff;
+  background: #ffffff15;
+  color: #fff;
+}
+.account {
+  margin-top: auto;
+  padding: 12px;
+  border: 1px solid #ffffff25;
+  background: #ffffff0b;
+}
+.account b {
+  display: block;
+}
+.account span {
+  display: block;
+  margin-top: 2px;
+  color: #bad0de;
+  font-size: 11px;
+}
+.account button {
+  margin-top: 9px;
+  border: 0;
+  background: transparent;
+  color: #a9cbe2;
+  font-size: 11px;
+  text-decoration: underline;
+}
+.queue {
+  min-width: 0;
+  background: #fff;
+  border-right: 1px solid var(--line);
+}
+.queue-head {
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.queue-head h1 {
+  margin: 3px 0 0;
+  font-size: 22px;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+}
+.tabs button {
+  flex: 1;
+  border: 1px solid var(--line);
+  padding: 8px 4px;
+  background: #fff;
+  color: #506575;
+  font-size: 10px;
+  font-weight: 800;
+}
+.tabs button.active {
+  border-color: #bad8f4;
+  background: #eef6fd;
+  color: #0d5c9e;
+}
+.tools {
+  display: grid;
+  gap: 7px;
+  margin-top: 13px;
+}
+.tools input,
+.tools select {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #cbd6dd;
+  font-size: 12px;
+}
+.list {
+  max-height: calc(100vh - 235px);
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  list-style: none;
+}
+.item {
+  border-left: 3px solid transparent;
+  padding: 12px;
+  cursor: pointer;
+}
+.item:hover {
+  background: #f5f8fa;
+}
+.item.active {
+  border-left-color: var(--blue);
+  background: #eaf3fb;
+}
+.item strong {
+  display: block;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+  color: #607583;
+  font-size: 11px;
+}
+.tag {
+  padding: 2px 5px;
+  font-size: 10px;
+  font-weight: 900;
+}
+.p1,
+.p2,
+.late {
+  background: #fde9e7;
+  color: var(--bad);
+}
+.p3,
+.due {
+  background: #fff1d8;
+  color: var(--warn);
+}
+.workspace {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  background: #fff;
+}
+.overview {
+  padding: 17px 24px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfd;
+}
+.overview h1 {
+  margin: 3px 0;
+  font-size: 23px;
+}
+.stats {
+  display: flex;
+  gap: 13px;
+  color: #4f6574;
+  font-size: 12px;
+}
+.stats b {
+  color: var(--ink);
+}
+.empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: 30px;
+  text-align: center;
+}
+.focus {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 17px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.who {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 39px;
+  height: 39px;
+  background: #d9edf9;
+  color: #15547c;
+  font-weight: 850;
+}
+.who h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.who p {
+  margin: 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.context {
+  display: flex;
+  gap: 15px;
+  overflow: auto;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafb;
+}
+.context div {
+  min-width: max-content;
+}
+.context span {
+  display: block;
+  color: #647784;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.context b {
+  display: block;
+  font-size: 11px;
+}
+.thread {
+  flex: 1;
+  overflow: auto;
+  padding: 18px 24px;
+  background: #fbfcfd;
+}
+.message {
+  width: max-content;
+  max-width: 78%;
+  margin: 7px 0;
+  padding: 9px 11px;
+  border: 1px solid #e0e8ed;
+  border-radius: 3px 11px 11px 11px;
+  background: #fff;
+}
+.message.out {
+  margin-left: auto;
+  border-color: #cbe6da;
+  border-radius: 11px 3px 11px 11px;
+  background: #e4f4ec;
+}
+.message small {
+  display: block;
+  margin-top: 4px;
+  color: #71818d;
+  font-size: 10px;
+}
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+}
+.composer textarea {
+  flex: 1;
+  min-height: 52px;
+  padding: 9px;
+  border: 1px solid #cbd6dd;
+  resize: vertical;
+}
+.commercial {
+  display: none;
+  flex: 1;
+  overflow: auto;
+  padding: 25px;
+  background: #f7fafb;
+}
+.commercial.active {
+  display: block;
+}
+.commercial-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.commercial h1 {
+  margin: 4px 0;
+  font-size: 27px;
+}
+.crm-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.metric {
+  padding: 17px;
+  border-left: 1px solid var(--line);
+}
+.metric:first-child {
+  border: 0;
+}
+.metric span {
+  display: block;
+  color: #627685;
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.metric b {
+  display: block;
+  margin-top: 7px;
+  font-size: 25px;
+}
+.crm-layout {
+  display: grid;
+  grid-template-columns: 1.45fr 0.9fr;
+  gap: 18px;
+  margin-top: 18px;
+}
+.panel {
+  border: 1px solid var(--line);
+  background: #fff;
+}
+.panel h2 {
+  margin: 0;
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+}
+.record {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #edf1f3;
+  padding: 12px 16px;
+  background: #fff;
+  text-align: left;
+}
+.record:hover {
+  background: #f6faff;
+}
+.record b,
+.record span {
+  display: block;
+}
+.record span {
+  margin-top: 3px;
+  color: #607583;
+  font-size: 11px;
+}
+.modal {
+  position: fixed;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #061b2a9c;
+}
+.modal-card {
+  width: min(540px, 100%);
+  padding: 24px;
+  background: #fff;
+  box-shadow: 0 28px 80px #0008;
+}
+.modal-card h2 {
+  margin: 4px 0 10px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+@media (max-width: 960px) {
+  .app {
+    grid-template-columns: 74px 300px minmax(0, 1fr);
+  }
+  .rail-brand strong,
+  .rail-brand small,
+  .account {
+    display: none;
+  }
+  .rail-brand {
+    justify-content: center;
+  }
+  .nav button {
+    text-align: center;
+  }
+  .nav button span {
+    display: none;
+  }
+  .crm-layout {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 680px) {
+  .app {
+    display: block;
+  }
+  .rail {
+    display: none;
+  }
+  .queue {
+    border-bottom: 1px solid var(--line);
+  }
+  .list {
+    max-height: 230px;
+  }
+  .overview,
+  .head,
+  .thread,
+  .composer,
+  .context {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .head {
+    flex-direction: column;
+  }
+  .actions .btn {
+    flex: 1;
+  }
+  .composer {
+    flex-direction: column;
+  }
+  .composer .btn {
+    width: 100%;
+  }
+  .commercial {
+    padding: 16px;
+  }
+  .crm-summary {
+    grid-template-columns: 1fr;
+  }
+  .metric {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+}
+</style>
+</head>
+<body>
+<section id="login" class="login">
+<form id="loginForm" class="login-card">
+<img class="login-logo logo" src="/assets/life-logo.png" alt="Life Engenharia">
+<p class="eyebrow">Central de atendimento</p>
+<h1>Bem-vindo de volta</h1>
+<p id="lastAccount" class="muted">Use seu e-mail corporativo para entrar.</p>
+<label class="field">E-mail corporativo<input id="email" type="email" autocomplete="email" required>
+</label>
+<label class="field">Senha<input id="password" type="password" autocomplete="current-password" required>
+</label>
+<button class="btn" style="width:100%;margin-top:20px">Entrar</button>
+<p class="muted" style="font-size:11px">Pressione Enter para entrar. A senha nunca é salva neste dispositivo.</p>
+<p id="loginNotice" class="notice">
+</p>
+</form>
+</section>
+<section id="app" class="app hidden">
+<aside class="rail">
+<div class="rail-brand">
+<img src="/assets/life-logo.png" alt="Life Engenharia">
+<div>
+<strong>Life Engenharia</strong>
+<small>Central de atendimento</small>
+</div>
+</div>
+<nav class="nav">
+<button class="active" data-view="queue">
+<span>Fila humana</span>
+</button>
+<button id="commercialNav" class="hidden" data-view="commercial">
+<span>Comercial</span>
+</button>
+</nav>
+<div class="account">
+<b id="accountName">Atendente</b>
+<span id="accountRole">Disponível para atender</span>
+<button id="logout" type="button">Sair da conta</button>
+</div>
+</aside>
+<aside id="queuePanel" class="queue">
+<div class="queue-head">
+<p class="eyebrow">Minha operação</p>
+<h1>Fila humana <span id="count">
+</span>
+</h1>
+<div class="tabs">
+<button data-filter="action" class="active">Para agir<br>
+<b id="actionN">0</b>
+</button>
+<button data-filter="mine">Minha fila<br>
+<b id="mineN">0</b>
+</button>
+<button data-filter="all">Todas<br>
+<b id="allN">0</b>
+</button>
+</div>
+<div class="tools">
+<input id="search" type="search" placeholder="Buscar cliente ou telefone">
+<select id="priority">
+<option value="">Todas as prioridades</option>
+<option value="urgent">P1 e P2</option>
+<option value="late">SLA vencido</option>
+<option value="due">Retorno para agora</option>
+</select>
+<button id="refresh" type="button" class="btn alt">Atualizar fila</button>
+</div>
+</div>
+<ul id="list" class="list">
+</ul>
+</aside>
+<main id="queueView" class="workspace">
+<section class="overview">
+<p class="eyebrow">Próximo passo</p>
+<h1 id="orientation">Escolha o próximo atendimento</h1>
+<div class="stats">
+<span>
+<b id="criticalN">0</b> críticos</span>
+<span>
+<b id="lateN">0</b> com SLA vencido</span>
+<span>
+<b id="dueN">0</b> retornos para agora</span>
+</div>
+</section>
+<section id="empty" class="empty">
+<div>
+<p class="eyebrow">Fila organizada</p>
+<h2>Nenhum atendimento selecionado</h2>
+<p class="muted">Comece pelo primeiro caso em “Para agir”.</p>
+</div>
+</section>
+<section id="detail" class="focus hidden">
+<header class="head">
+<div class="who">
+<div id="avatar" class="avatar">C</div>
+<div>
+<h2 id="name">
+</h2>
+<p id="state">
+</p>
+</div>
+</div>
+<div class="actions">
+<button id="claim" type="button" class="btn">Assumir atendimento</button>
+<button id="more" type="button" class="btn alt">Mais ações</button>
+</div>
+</header>
+<p id="notice" class="notice" style="margin:8px 24px">
+</p>
+<div id="context" class="context">
+</div>
+<div id="messages" class="thread">
+</div>
+<form id="composer" class="composer">
+<textarea id="text" required placeholder="Digite sua mensagem ao cliente">
+</textarea>
+<button class="btn">Enviar</button>
+</form>
+</section>
+</main>
+<main id="commercialView" class="commercial">
+<div class="commercial-head">
+<div>
+<p class="eyebrow">Ploomes CRM</p>
+<h1>Comercial</h1>
+<p class="muted">Recentes, oportunidades e detalhes de contato.</p>
+</div>
+<button id="crmRefresh" class="btn alt">Atualizar</button>
+</div>
+<div id="crmContent" class="muted" style="margin-top:20px">Carregando dados comerciais…</div>
+</main>
+</section>
+<div id="modal" class="modal hidden">
+<form id="modalForm" class="modal-card">
+<p class="eyebrow">Ação do atendimento</p>
+<h2 id="modalTitle">
+</h2>
+<div id="modalBody">
+</div>
+<div class="modal-actions">
+<button id="cancel" type="button" class="btn alt">Cancelar</button>
+<button class="btn">Confirmar</button>
+</div>
+</form>
+</div><script>
+let items = [],
+  selected = null,
+  queueMode = "action",
+  query = "",
+  priority = "",
+  modalAction = null,
+  crmLoaded = false;
+const roles = ["admin", "coordination", "commercial"];
+const auth = () => ({
+  Authorization: "Bearer " + sessionStorage.getItem("operatorToken"),
+});
+const api = async (p, i = {}) => {
+  const r = await fetch(p, {
+    ...i,
+    headers: { ...auth(), ...(i.headers || {}) },
+  });
+  if (!r.ok)
+    throw Error(
+      (await r.json().catch(() => ({}))).error ||
+        "Não foi possível concluir a ação.",
+    );
+  return r.status === 204 ? null : r.json();
+};
+const esc = (v) =>
+  String(v ?? "").replace(
+    /[&<>"']/g,
+    (x) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[x],
+  );
+const mins = (v) => (Date.now() - new Date(v)) / 60000;
+const sla = (c) => (["P1", "P2"].includes(c.suggestedPriority) ? 30 : 120);
+const late = (c) => mins(c.updatedAt) > sla(c);
+const due = (c) => c.followUpAt && new Date(c.followUpAt) <= new Date();
+const age = (v) => {
+  const n = Math.floor(mins(v));
+  return n < 60 ? n + " min" : Math.floor(n / 60) + " h";
+};
+const fmt = (v) =>
+  new Date(v).toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+const money = (v) =>
+  new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  }).format(Number(v) || 0);
+const action = (c) =>
+  due(c) || late(c) || ["P1", "P2"].includes(c.suggestedPriority);
+function note(t, ok = false) {
+  const e = document.getElementById("notice");
+  e.textContent = t;
+  e.className = "notice " + (ok ? "ok" : "");
+}
+function renderQueue() {
+  const me = sessionStorage.getItem("operatorName");
+  const rows = items
+    .filter((c) => {
+      const h = (c.contactName + " " + c.contactPhone).toLowerCase();
+      return (
+        (!query || h.includes(query)) &&
+        (!priority ||
+          (priority === "urgent"
+            ? ["P1", "P2"].includes(c.suggestedPriority)
+            : priority === "late"
+              ? late(c)
+              : due(c))) &&
+        (queueMode === "all" || queueMode === "mine"
+          ? queueMode !== "mine" || c.assignedOperator === me
+          : action(c))
+      );
+    })
+    .sort(
+      (a, b) =>
+        Number(due(b)) - Number(due(a)) ||
+        Number(late(b)) - Number(late(a)) ||
+        new Date(a.updatedAt) - new Date(b.updatedAt),
+    );
+  document.getElementById("actionN").textContent = items.filter(action).length;
+  document.getElementById("mineN").textContent = items.filter(
+    (c) => c.assignedOperator === me,
+  ).length;
+  document.getElementById("allN").textContent = items.length;
+  document.getElementById("criticalN").textContent = items.filter((c) =>
+    ["P1", "P2"].includes(c.suggestedPriority),
+  ).length;
+  document.getElementById("lateN").textContent = items.filter(late).length;
+  document.getElementById("dueN").textContent = items.filter(due).length;
+  document.getElementById("count").textContent = "(" + rows.length + ")";
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  rows.forEach((c) => {
+    const e = document.createElement("li");
+    e.className = "item" + (selected?.id === c.id ? " active" : "");
+    const p = c.suggestedPriority
+      ? '<span class="tag ' +
+        c.suggestedPriority.toLowerCase() +
+        '">' +
+        c.suggestedPriority +
+        "</span>"
+      : "";
+    e.innerHTML =
+      "<strong>" +
+      esc(c.contactName || c.contactPhone) +
+      '</strong><div class="meta">' +
+      p +
+      (late(c) ? '<span class="tag late">SLA vencido</span>' : "") +
+      (due(c) ? '<span class="tag due">Retorno agora</span>' : "") +
+      '</div><div class="meta">' +
+      esc(c.destinationArea || c.route || "Atendimento") +
+      " · há " +
+      age(c.updatedAt) +
+      "</div>";
+    e.onclick = () => open(c.id);
+    list.append(e);
+  });
+}
+async function load() {
+  items = await api("/api/operator/conversations");
+  renderQueue();
+  if (selected && items.some((i) => i.id === selected.id))
+    await open(selected.id);
+}
+function humanMessage(content) {
+  const m = String(content || "").match(/^([^:]{2,80}):\s([\s\S]*)$/);
+  return m
+    ? "<strong>" + esc(m[1]) + ":</strong> " + esc(m[2])
+    : esc(content || "[mensagem sem texto]");
+}
+async function open(id) {
+  selected = await api("/api/operator/conversations/" + id);
+  document.getElementById("empty").classList.add("hidden");
+  document.getElementById("detail").classList.remove("hidden");
+  document.getElementById("name").textContent =
+    selected.contactName || selected.contactPhone;
+  document.getElementById("avatar").textContent = (selected.contactName || "C")
+    .slice(0, 2)
+    .toUpperCase();
+  document.getElementById("state").textContent = selected.assignedOperator
+    ? "Em atendimento humanizado por " + selected.assignedOperator
+    : "Aguardando alguém assumir";
+  document.getElementById("orientation").textContent = selected.assignedOperator
+    ? "Resolva este atendimento"
+    : "Assuma ou encaminhe este atendimento";
+  const c = selected.context || {},
+    fields = [
+      ["Empresa", c.company],
+      ["Serviço", c.service || c.equipment],
+      ["Local", c.location],
+      ["Impacto", c.operationalImpact],
+      ["Retorno", selected.followUpAt ? fmt(selected.followUpAt) : null],
+    ].filter((x) => x[1]);
+  document.getElementById("context").innerHTML =
+    fields
+      .map(
+        (x) =>
+          "<div><span>" + esc(x[0]) + "</span><b>" + esc(x[1]) + "</b></div>",
+      )
+      .join("") || '<span class="muted">Sem contexto adicional.</span>';
+  const attachments = selected.attachments || [];
+  if (attachments.length) {
+    document.getElementById("context").insertAdjacentHTML(
+      "beforeend",
+      '<div class="attachment-row"><span>Anexos</span>' +
+        attachments.map((attachment) =>
+          '<button type="button" class="attachment-link" data-attachment-id="' + esc(attachment.id) + '" ' +
+          (attachment.status === "stored" ? "" : "disabled") + '>' +
+          esc(attachment.fileName) + " · " + esc(attachment.status) + "</button>",
+        ).join("") + "</div>",
+    );
+    document.querySelectorAll("[data-attachment-id]").forEach((button) => {
+      button.onclick = async () => {
+        const attachment = await api("/api/operator/conversations/" + selected.id + "/attachments/" + button.dataset.attachmentId + "/url");
+        window.open(attachment.url, "_blank", "noopener");
+      };
+    });
+  }
+  document.getElementById("messages").innerHTML = selected.messages
+    .map(
+      (m) =>
+        '<div class="message ' +
+        (m.direction === "outbound" ? "out" : "") +
+        ">" +
+        humanMessage(m.content) +
+        "<small>" +
+        fmt(m.receivedAt) +
+        (m.direction === "outbound" ? " · Atendimento Life" : " · Cliente") +
+        "</small></div>",
+    )
+    .join("");
+  const mine =
+    selected.assignedOperator === sessionStorage.getItem("operatorName");
+  document.getElementById("claim").textContent = mine
+    ? "Em atendimento por você"
+    : "Assumir atendimento";
+  document.getElementById("claim").disabled = mine;
+  renderQueue();
+}
+function modal(title, body, fn) {
+  modalAction = fn;
+  document.getElementById("modalTitle").textContent = title;
+  document.getElementById("modalBody").innerHTML = body;
+  document.getElementById("modal").classList.remove("hidden");
+}
+function closeModal() {
+  document.getElementById("modal").classList.add("hidden");
+  modalAction = null;
+}
+document.getElementById("cancel").onclick = closeModal;
+document.getElementById("modalForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await modalAction(new FormData(e.currentTarget));
+    closeModal();
+  } catch (err) {
+    window.alert(err.message);
+  }
+};
+function activate(view) {
+  const commercial = view === "commercial";
+  document.getElementById("queuePanel").classList.toggle("hidden", commercial);
+  document.getElementById("queueView").classList.toggle("hidden", commercial);
+  document
+    .getElementById("commercialView")
+    .classList.toggle("active", commercial);
+  document
+    .querySelectorAll("[data-view]")
+    .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  if (commercial && !crmLoaded) loadCrm();
+}
+async function loadCrm() {
+  const root = document.getElementById("crmContent");
+  root.textContent = "Carregando dados comerciais…";
+  try {
+    const r = await api("/api/operator/crm/overview");
+    if (!r.connected) {
+      root.textContent = r.reason;
+      return;
+    }
+    const o = r.overview,
+      m = o.metrics,
+      name = (x) =>
+        x.Name ||
+        x.CompanyName ||
+        x.LegalName ||
+        x.TradeName ||
+        "Contato sem nome";
+    const contact = (x) =>
+      x.Email || x.Phone || x.MobilePhone || "Sem contato informado";
+    const rows = (list, type) =>
+      list
+        .slice(0, 30)
+        .map(
+          (x, i) =>
+            '<button class="record" data-type="' +
+            type +
+            '" data-index="' +
+            i +
+            '"><b>' +
+            esc(
+              type === "deal"
+                ? x.Title || x.Name || "Oportunidade sem título"
+                : name(x),
+            ) +
+            "</b><span>" +
+            esc(
+              type === "deal"
+                ? (x.Stage?.Name || x.StageName || "Etapa não informada") +
+                    " · " +
+                    money(x.Amount)
+                : contact(x),
+            ) +
+            "</span></button>",
+        )
+        .join("") ||
+      '<p class="muted" style="padding:16px">Nenhum registro recente.</p>';
+    root.innerHTML =
+      '<div class="crm-summary"><div class="metric"><span>Oportunidades recentes</span><b>' +
+      m.totalDeals +
+      '</b></div><div class="metric"><span>Valor da amostra</span><b>' +
+      money(m.totalAmount) +
+      '</b></div><div class="metric"><span>Contatos recentes</span><b>' +
+      o.contacts.length +
+      '</b></div></div><div class="crm-layout"><section class="panel"><h2>Recentes no Ploomes</h2>' +
+      rows(o.contacts, "contact") +
+      '</section><section class="panel"><h2>Oportunidades</h2>' +
+      rows(o.deals, "deal") +
+      "</section></div>";
+    root.querySelectorAll(".record").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const item = (b.dataset.type === "deal" ? o.deals : o.contacts)[
+              Number(b.dataset.index)
+            ],
+            entries =
+              Object.entries(item)
+                .filter(
+                  ([k, v]) =>
+                    !k.startsWith("@") &&
+                    v !== null &&
+                    v !== undefined &&
+                    typeof v !== "object",
+                )
+                .map(([k, v]) => "<p><b>" + esc(k) + ":</b> " + esc(v) + "</p>")
+                .join("") || '<p class="muted">Sem detalhes adicionais.</p>';
+          modal(
+            b.dataset.type === "deal"
+              ? "Detalhes da oportunidade"
+              : "Detalhes do contato",
+            entries,
+            async () => {},
+          );
+        }),
+    );
+    crmLoaded = true;
+  } catch (e) {
+    root.textContent = "Não foi possível carregar o Ploomes agora.";
+  }
+}
+document.getElementById("crmRefresh").onclick = () => {
+  crmLoaded = false;
+  loadCrm();
+};
+document.getElementById("loginForm").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const r = await fetch("/api/operator/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: document.getElementById("email").value.trim(),
+        password: document.getElementById("password").value,
+      }),
+    });
+    if (!r.ok)
+      throw Error((await r.json()).error || "Não foi possível entrar.");
+    const s = await r.json();
+    sessionStorage.setItem("operatorToken", s.token);
+    sessionStorage.setItem("operatorName", s.user.name);
+    sessionStorage.setItem("operatorRole", s.user.role);
+    localStorage.setItem("lifeLastAccount", s.user.email);
+    document.getElementById("accountName").textContent = s.user.name;
+    document.getElementById("accountRole").textContent =
+      s.user.role + " · disponível para atender";
+    document
+      .getElementById("commercialNav")
+      .classList.toggle("hidden", !roles.includes(s.user.role));
+    await load();
+    document.getElementById("login").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+  } catch (err) {
+    document.getElementById("loginNotice").textContent = err.message;
+  }
+};
+const last = localStorage.getItem("lifeLastAccount");
+if (last) {
+  document.getElementById("email").value = last;
+  document.getElementById("lastAccount").textContent =
+    "Última conta usada: " + last + ". Informe sua senha para continuar.";
+}
+document.querySelectorAll("[data-filter]").forEach(
+  (b) =>
+    (b.onclick = () => {
+      queueMode = b.dataset.filter;
+      document
+        .querySelectorAll("[data-filter]")
+        .forEach((x) => x.classList.toggle("active", x === b));
+      renderQueue();
+    }),
+);
+document
+  .querySelectorAll("[data-view]")
+  .forEach((b) => (b.onclick = () => activate(b.dataset.view)));
+document.getElementById("search").oninput = (e) => {
+  query = e.target.value.trim().toLowerCase();
+  renderQueue();
+};
+document.getElementById("priority").onchange = (e) => {
+  priority = e.target.value;
+  renderQueue();
+};
+document.getElementById("refresh").onclick = () =>
+  load().catch((e) => note(e.message));
+document.getElementById("claim").onclick = async () => {
+  try {
+    await api("/api/operator/conversations/" + selected.id + "/claim", {
+      method: "POST",
+    });
+    await load();
+    note(
+      "Atendimento assumido. O cliente foi avisado que " +
+        sessionStorage.getItem("operatorName") +
+        " assume a conversa.",
+      true,
+    );
+  } catch (e) {
+    note(e.message);
+  }
+};
+document.getElementById("more").onclick = () =>
+  modal(
+    "Mais ações",
+    '<label class="field">Ação<select name="action"><option value="note">Adicionar nota interna</option><option value="followup">Agendar retorno</option><option value="release">Devolver à fila</option><option value="close">Encerrar atendimento</option></select></label><label class="field">Detalhe / resolução<textarea name="text" maxlength="2000" placeholder="Obrigatório para nota e encerramento"></textarea></label><label class="field">Retorno<input name="followUpAt" type="datetime-local"></label>',
+    async (f) => {
+      const a = f.get("action"),
+        t = f.get("text").trim();
+      if (a === "note") {
+        if (!t) throw Error("Escreva a nota.");
+        await api("/api/operator/conversations/" + selected.id + "/notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: t }),
+        });
+      }
+      if (a === "followup") {
+        const v = f.get("followUpAt");
+        if (!v) throw Error("Escolha data e horário.");
+        await api("/api/operator/conversations/" + selected.id + "/follow-up", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ followUpAt: new Date(v).toISOString() }),
+        });
+      }
+      if (a === "release")
+        await api("/api/operator/conversations/" + selected.id + "/release", {
+          method: "POST",
+        });
+      if (a === "close") {
+        if (t.length < 3) throw Error("Registre a resolução do atendimento.");
+        await api("/api/operator/conversations/" + selected.id + "/close", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resolutionNote: t }),
+        });
+        selected = null;
+        document.getElementById("detail").classList.add("hidden");
+        document.getElementById("empty").classList.remove("hidden");
+      }
+      await load();
+      note("Alteração salva.", true);
+    },
+  );
+document.getElementById("composer").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = document.getElementById("text").value.trim();
+  if (!text) return;
+  try {
+    await api("/api/operator/conversations/" + selected.id + "/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    document.getElementById("text").value = "";
+    await open(selected.id);
+  } catch (err) {
+    note(err.message);
+  }
+};
+document.getElementById("logout").onclick = () => {
+  sessionStorage.clear();
+  location.reload();
+};
 </script></body></html>`;
