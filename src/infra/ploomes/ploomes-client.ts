@@ -17,6 +17,25 @@ export type PloomesDeal = Record<string, unknown> & {
 };
 export type PloomesContact = Record<string, unknown> & { Id?: number; Name?: string };
 
+export type CommercialLeadForPloomes = {
+  protocolReference: string;
+  service: string;
+  contactName: string;
+  company?: string;
+  cnpj?: string;
+  phone?: string;
+  email?: string;
+  location: string;
+  timeline: string;
+  need: string;
+};
+
+export type PloomesSyncResult = {
+  contactId: number;
+  dealId: number;
+  pipelineId: number;
+};
+
 export type PloomesMetrics = {
   totalDeals: number;
   totalAmount: number;
@@ -39,7 +58,7 @@ export class PloomesClient {
   constructor(
     private readonly userKey: string,
     private readonly fetcher: typeof fetch = fetch,
-  ) {}
+  ) { }
 
   async getAccount(): Promise<PloomesAccount> {
     return this.request<PloomesAccount>('Account');
@@ -67,6 +86,22 @@ export class PloomesClient {
 
   async getCommercialMetrics(): Promise<PloomesMetrics> {
     return this.createMetrics(await this.listRecentDeals());
+  }
+
+  /**
+   * Cria o contato e a oportunidade somente depois de encontrar um funil
+   * inequívoco. Não tentamos adivinhar o funil: isso evita lançar uma proposta
+   * no processo comercial errado durante a homologação.
+   */
+  async syncCommercialLead(lead: CommercialLeadForPloomes): Promise<PloomesSyncResult> {
+    const pipeline = await this.getActiveCommercialPipeline();
+    const contact = await this.findExistingContact(lead);
+    const contactId = contact?.Id ?? (await this.createContact(lead)).Id;
+    if (!contactId) throw new Error('O Ploomes não retornou o identificador do contato criado.');
+
+    const deal = await this.createDeal(lead, contactId, pipeline.Id);
+    if (!deal.Id) throw new Error('O Ploomes não retornou o identificador da oportunidade criada.');
+    return { contactId, dealId: deal.Id, pipelineId: pipeline.Id };
   }
 
   /**
@@ -116,6 +151,58 @@ export class PloomesClient {
     return response.value ?? [];
   }
 
+  private async findExistingContact(lead: CommercialLeadForPloomes): Promise<PloomesContact | undefined> {
+    const contacts = await this.listRecentContacts();
+    const normalizedPhone = normalizeIdentity(lead.phone);
+    const normalizedEmail = lead.email?.trim().toLocaleLowerCase('pt-BR');
+    const normalizedName = normalizeIdentity(lead.contactName);
+    return contacts.find((contact) => {
+      const values = Object.values(contact).filter((value): value is string => typeof value === 'string');
+      return values.some((value) =>
+        (normalizedPhone && normalizeIdentity(value) === normalizedPhone) ||
+        (normalizedEmail && value.trim().toLocaleLowerCase('pt-BR') === normalizedEmail) ||
+        (normalizedName && normalizeIdentity(contact.Name) === normalizedName),
+      );
+    });
+  }
+
+  private async createContact(lead: CommercialLeadForPloomes): Promise<PloomesContact> {
+    return this.request<PloomesContact>('Contacts', {
+      method: 'POST',
+      body: JSON.stringify({
+        Name: lead.contactName,
+        CompanyName: lead.company || undefined,
+        Phone: lead.phone || undefined,
+        Email: lead.email || undefined,
+      }),
+    });
+  }
+
+  private async createDeal(
+    lead: CommercialLeadForPloomes,
+    contactId: number,
+    pipelineId: number,
+  ): Promise<PloomesDeal> {
+    const title = `[${lead.protocolReference}] ${lead.service} — ${lead.contactName}`.slice(0, 250);
+    return this.request<PloomesDeal>('Deals', {
+      method: 'POST',
+      body: JSON.stringify({
+        Title: title,
+        ContactId: contactId,
+        PipelineId: pipelineId,
+        Description: [
+          `Protocolo Life: ${lead.protocolReference}`,
+          `Serviço: ${lead.service}`,
+          `Local: ${lead.location}`,
+          `Prazo: ${lead.timeline}`,
+          `Necessidade: ${lead.need}`,
+          lead.company ? `Empresa: ${lead.company}` : undefined,
+          lead.cnpj ? `CNPJ: ${lead.cnpj}` : undefined,
+        ].filter(Boolean).join('\n'),
+      }),
+    });
+  }
+
   private createMetrics(deals: PloomesDeal[]): PloomesMetrics {
     const group = (resolve: (deal: PloomesDeal) => string) =>
       [...deals.reduce((map, deal) => map.set(resolve(deal), (map.get(resolve(deal)) ?? 0) + 1), new Map<string, number>())]
@@ -135,14 +222,21 @@ export class PloomesClient {
     return response.value;
   }
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await this.fetcher(`${PLOOMES_API_URL}/${path}`, {
+      ...init,
       headers: {
         'Content-Type': 'application/json',
         'User-Key': this.userKey,
+        ...init.headers,
       },
     });
-    if (!response.ok) throw new Error(`Ploomes respondeu ${response.status} ao consultar ${path}.`);
+    if (!response.ok) throw new Error(`Ploomes respondeu ${response.status} ao acessar ${path}.`);
     return (await response.json()) as T;
   }
+}
+
+function normalizeIdentity(value?: string): string | undefined {
+  const normalized = value?.replace(/[^a-zA-Z0-9]/g, '').toLocaleLowerCase('pt-BR');
+  return normalized || undefined;
 }

@@ -57,4 +57,28 @@ describe('PloomesClient', () => {
     expect(overview.metrics).toMatchObject({ totalDeals: 1, totalAmount: 2500 });
     expect(overview.sources).toEqual({ account: 'ok', pipelines: 'ok', users: 'unavailable', deals: 'ok', contacts: 'ok' });
   });
+
+  it('creates a contact and opportunity only after resolving a single commercial pipeline', async () => {
+    const fetcher = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('Deals@Pipelines'))
+        return new Response(JSON.stringify({ value: [{ Id: 9, Name: 'Comercial' }] }));
+      if (url.includes('/Contacts?')) return new Response(JSON.stringify({ value: [] }));
+      if (url.endsWith('/Contacts')) {
+        expect(init?.method).toBe('POST');
+        return new Response(JSON.stringify({ Id: 45, Name: 'Renata' }), { status: 201 });
+      }
+      if (url.endsWith('/Deals')) {
+        expect(init?.method).toBe('POST');
+        expect(JSON.parse(String(init?.body))).toMatchObject({ ContactId: 45, PipelineId: 9 });
+        return new Response(JSON.stringify({ Id: 77 }), { status: 201 });
+      }
+      throw new Error(`Requisição inesperada: ${url}`);
+    });
+
+    await expect(new PloomesClient('secret-key', fetcher).syncCommercialLead({
+      protocolReference: 'LFE-20261014-1234ABCD', service: 'Manutenção', contactName: 'Renata',
+      phone: '79999999999', location: 'Aracaju', timeline: 'Esta semana', need: 'Revisar chiller',
+    })).resolves.toEqual({ contactId: 45, dealId: 77, pipelineId: 9 });
+  });
 });
