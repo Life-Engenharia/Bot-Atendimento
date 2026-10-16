@@ -255,16 +255,38 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   }
 
   async refreshOperationalAlerts(): Promise<{ created: number }> {
-    const overdue = await this.request<Array<{ id: string }>>(
-      `conversations?select=id&state=in.(queued,human)&follow_up_at=lt.${encodeURIComponent(new Date().toISOString())}`,
-      {}, [200],
-    );
-    if (!overdue.length) return { created: 0 };
-    const existing = await this.request<Array<{ id: string }>>('operational_alerts?kind=eq.overdue_follow_up&status=eq.open&select=id', {}, [200]);
-    if (existing.length) return { created: 0 };
-    await this.request('operational_alerts', { method: 'POST', body: JSON.stringify({ kind: 'overdue_follow_up', title: 'Retornos vencidos', detail: `${overdue.length} retorno(s) aguardam ação.` }) }, [201]);
-    await this.audit('operational.alert_created', 'system', { kind: 'overdue_follow_up', count: overdue.length });
-    return { created: 1 };
+    const [overdue, currentSchedules, criticalWithoutOwner] = await Promise.all([
+      this.request<Array<{ id: string }>>(
+        `conversations?select=id&state=in.(queued,human)&follow_up_at=lt.${encodeURIComponent(new Date().toISOString())}`,
+        {}, [200],
+      ),
+      this.request<Array<{ id: string }>>(
+        'operational_documents?select=id&category=eq.on_call_schedule&is_current=is.true', {}, [200],
+      ),
+      this.request<Array<{ id: string }>>(
+        'conversations?select=id,protocols!inner(suggested_priority)&state=in.(queued,human)&assigned_operator=is.null&protocols.suggested_priority=in.(P1,P2)', {}, [200],
+      ),
+    ]);
+    const candidates = [
+      overdue.length && { kind: 'overdue_follow_up', title: 'Retornos vencidos', detail: `${overdue.length} retorno(s) aguardam ação.`, count: overdue.length },
+      !currentSchedules.length && { kind: 'missing_on_call', title: 'Escala vigente não publicada', detail: 'Publique a escala de plantão atual para orientar os encaminhamentos.', count: 1 },
+      criticalWithoutOwner.length && { kind: 'unassigned_critical', title: 'Casos prioritários sem responsável', detail: `${criticalWithoutOwner.length} caso(s) P1 ou P2 ainda não foram assumidos.`, count: criticalWithoutOwner.length },
+    ].filter(Boolean) as Array<{ kind: string; title: string; detail: string; count: number }>;
+    if (!candidates.length) return { created: 0 };
+    let created = 0;
+    for (const candidate of candidates) {
+      const existing = await this.request<Array<{ id: string }>>(
+        `operational_alerts?kind=eq.${encodeURIComponent(candidate.kind)}&status=eq.open&select=id`, {}, [200],
+      );
+      if (existing.length) continue;
+      await this.request('operational_alerts', {
+        method: 'POST',
+        body: JSON.stringify({ kind: candidate.kind, title: candidate.title, detail: candidate.detail }),
+      }, [201]);
+      await this.audit('operational.alert_created', 'system', { kind: candidate.kind, count: candidate.count });
+      created += 1;
+    }
+    return { created };
   }
 
   async listOperationalAlerts(): Promise<OperationalAlert[]> {
