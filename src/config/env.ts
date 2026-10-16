@@ -17,6 +17,7 @@ const environmentSchema = z
     // A senha fica apenas no ambiente/Secret Manager. Os demais dados SMTP são
     // configurados pelo administrador no painel e não incluem segredos.
     SMTP_PASSWORD: z.string().min(1).optional(),
+    ALERT_NOTIFICATION_EMAILS: z.string().optional(),
     PLOOMES_USER_KEY: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     OPENAI_MODEL: z.string().min(1).optional(),

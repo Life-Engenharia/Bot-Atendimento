@@ -241,7 +241,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.post('/api/admin/jobs/alerts', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
-    return supabaseStore.refreshOperationalAlerts();
+    const result = await supabaseStore.refreshOperationalAlerts();
+    await sendOperationalAlertEmail(result.created, supabaseStore, operationalConfigurationStore, environment);
+    return result;
   });
   app.get('/api/admin/alerts', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
@@ -763,4 +765,15 @@ function visibleAreas(actor: { role: AppRole; area: AppUser['area'] }): string[]
 function canAccessConversation(actor: { role: AppRole; area: AppUser['area'] }, destinationArea: string | null | undefined): boolean {
   const areas = visibleAreas(actor);
   return !areas || Boolean(destinationArea && areas.includes(destinationArea));
+}
+
+async function sendOperationalAlertEmail(created: number, supabaseStore: SupabaseConversationStore, store: OperationalConfigurationStore | undefined, environment: Environment): Promise<void> {
+  const recipients = (environment.ALERT_NOTIFICATION_EMAILS ?? '').split(',').map((email) => email.trim()).filter(Boolean);
+  if (!created || !recipients.length || !store || !environment.SMTP_PASSWORD) return;
+  const configuration = await smtpConfigurationFromSettings(store, environment.SMTP_PASSWORD);
+  if (!configuration) return;
+  const alerts = (await supabaseStore.listOperationalAlerts()).filter((alert) => alert.status === 'open').slice(0, 8);
+  const text = alerts.map((alert) => `• ${alert.title}: ${alert.detail}`).join('\n');
+  await Promise.allSettled(recipients.map((to) => new SmtpEmailSender(configuration).send({ to, subject: 'Ação necessária · Central Life', text })));
+  await supabaseStore.audit('operational.alert_notified', 'system', { recipients: recipients.length, alerts: alerts.length });
 }
