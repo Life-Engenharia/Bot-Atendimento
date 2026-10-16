@@ -41,6 +41,16 @@ export function enhancedAdminDashboardHtml(): string {
     const fields = document.createElement('div'); fields.className = 'formgrid';
     fields.innerHTML = '<label>Data ou período do plantão<input id="onCallDate" placeholder="Ex.: 16 a 20/10/2026"></label><label>Plantonistas e apoio<input id="onCallMembers" placeholder="Ex.: Ana, João (backup)"></label>';
     summary.parentElement.before(fields);
+    document.querySelector('#fileInput')?.addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      if (!file || !/\.csv$/i.test(file.name)) return;
+      const text = await file.text();
+      const dates = text.match(/\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/g) ?? [];
+      const rows = text.split(/\r?\n/).slice(1).map(row => row.split(/[;,]/)[0]?.trim()).filter(value => value && value.length > 2 && !/data|dia|nome/i.test(value));
+      const dateField = document.querySelector('#onCallDate'), membersField = document.querySelector('#onCallMembers');
+      if (dateField && dates.length) dateField.value = [...new Set(dates)].slice(0, 4).join(' · ');
+      if (membersField && rows.length) membersField.value = [...new Set(rows)].slice(0, 12).join(', ');
+    });
   }
   const originalFetch = window.fetch.bind(window);
   window.fetch = (url, init) => {
