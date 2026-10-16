@@ -51,6 +51,7 @@ export type OperationalDocument = {
   createdAt: string;
   onCallDate?: string | null;
   onCallMembers?: string | null;
+  isCurrent?: boolean;
 };
 export type OperationalOverview = { newCases: number; inProgress: number; followUps: number; resolved: number; members: Array<Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'area' | 'active'>>; recentActivity: Array<{ eventType: string; actor: string; createdAt: string }> };
 export type OperationalAlert = { id: string; kind: string; title: string; detail: string; status: 'open' | 'resolved'; createdAt: string };
@@ -216,11 +217,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const rows = await this.request<Array<{
       id: string; file_name: string; media_type: string; size_bytes: number;
       category: OperationalDocument['category']; confidence: OperationalDocument['confidence'];
-      summary: string; status: OperationalDocument['status']; created_at: string; on_call_date: string | null; on_call_members: string | null;
-    }>>('operational_documents?select=id,file_name,media_type,size_bytes,category,confidence,summary,status,created_at,on_call_date,on_call_members&order=created_at.desc', {}, [200]);
+      summary: string; status: OperationalDocument['status']; created_at: string; on_call_date: string | null; on_call_members: string | null; is_current: boolean;
+    }>>('operational_documents?select=id,file_name,media_type,size_bytes,category,confidence,summary,status,created_at,on_call_date,on_call_members,is_current&order=created_at.desc', {}, [200]);
     return rows.map((row) => ({
       id: row.id, fileName: row.file_name, mediaType: row.media_type, sizeBytes: row.size_bytes,
-      category: row.category, confidence: row.confidence, summary: row.summary, status: row.status, createdAt: row.created_at, onCallDate: row.on_call_date, onCallMembers: row.on_call_members,
+      category: row.category, confidence: row.confidence, summary: row.summary, status: row.status, createdAt: row.created_at, onCallDate: row.on_call_date, onCallMembers: row.on_call_members, isCurrent: row.is_current,
     }));
   }
 
@@ -231,7 +232,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const rows = await this.request<Array<{
       id: string; file_name: string; media_type: string; size_bytes: number;
       category: OperationalDocument['category']; confidence: OperationalDocument['confidence'];
-      summary: string; status: OperationalDocument['status']; created_at: string; on_call_date: string | null; on_call_members: string | null;
+      summary: string; status: OperationalDocument['status']; created_at: string; on_call_date: string | null; on_call_members: string | null; is_current: boolean;
     }>>('operational_documents', {
       method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({
         storage_path: storagePath, file_name: fileName, media_type: input.mediaType, size_bytes: input.sizeBytes,
@@ -241,7 +242,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const row = rows[0];
     if (!row) throw new Error('O documento foi enviado, mas não pôde ser registrado.');
     await this.audit('operational_document.uploaded', 'admin-dashboard', { documentId: row.id, category: row.category, fileName });
-    return { id: row.id, fileName: row.file_name, mediaType: row.media_type, sizeBytes: row.size_bytes, category: row.category, confidence: row.confidence, summary: row.summary, status: row.status, createdAt: row.created_at, onCallDate: row.on_call_date, onCallMembers: row.on_call_members };
+    return { id: row.id, fileName: row.file_name, mediaType: row.media_type, sizeBytes: row.size_bytes, category: row.category, confidence: row.confidence, summary: row.summary, status: row.status, createdAt: row.created_at, onCallDate: row.on_call_date, onCallMembers: row.on_call_members, isCurrent: row.is_current };
   }
 
   async getOperationalOverview(): Promise<OperationalOverview> {
