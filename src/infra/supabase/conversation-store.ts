@@ -53,7 +53,7 @@ export type OperationalDocument = {
   onCallMembers?: string | null;
   isCurrent?: boolean;
 };
-export type OperationalOverview = { newCases: number; inProgress: number; followUps: number; resolved: number; members: Array<Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'area' | 'active'>>; recentActivity: Array<{ eventType: string; actor: string; createdAt: string }> };
+export type OperationalOverview = { newCases: number; inProgress: number; followUps: number; resolved: number; openedToday: number; resolvedToday: number; slaBreaches: number; averageResolutionMinutes: number | null; members: Array<Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'area' | 'active'>>; recentActivity: Array<{ eventType: string; actor: string; createdAt: string; payload: Record<string, unknown> }> };
 export type OperationalAlert = { id: string; kind: string; title: string; detail: string; status: 'open' | 'resolved'; createdAt: string };
 
 type Contact = { id: string };
@@ -247,11 +247,35 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
 
   async getOperationalOverview(): Promise<OperationalOverview> {
     const [conversations, users, audit] = await Promise.all([
-      this.request<Array<{ state: string; follow_up_at: string | null }>>('conversations?select=state,follow_up_at', {}, [200]),
+      this.request<Array<{ state: string; follow_up_at: string | null; created_at: string; updated_at: string; protocols: { suggested_priority: 'P1' | 'P2' | 'P3' | 'P4' | null } | null }>>('conversations?select=state,follow_up_at,created_at,updated_at,protocols(suggested_priority)', {}, [200]),
       this.listUsers(),
-      this.request<Array<{ event_type: string; actor: string; created_at: string }>>('audit_events?select=event_type,actor,created_at&order=created_at.desc&limit=8', {}, [200]),
+      this.request<Array<{ event_type: string; actor: string; created_at: string; payload: Record<string, unknown> }>>('audit_events?select=event_type,actor,created_at,payload&order=created_at.desc&limit=20', {}, [200]),
     ]);
-    return { newCases: conversations.filter((item) => item.state === 'queued').length, inProgress: conversations.filter((item) => item.state === 'human').length, followUps: conversations.filter((item) => Boolean(item.follow_up_at)).length, resolved: conversations.filter((item) => item.state === 'closed').length, members: users.map(({ passwordHash: _passwordHash, ...user }) => user), recentActivity: audit.map((event) => ({ eventType: event.event_type, actor: event.actor, createdAt: event.created_at })) };
+    const now = Date.now();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const slaMinutes = (priority: string | null | undefined) => priority === 'P1' || priority === 'P2' ? 30 : 120;
+    const closed = conversations.filter((item) => item.state === 'closed');
+    const resolutionMinutes = closed.map((item) => Math.max(0, (new Date(item.updated_at).getTime() - new Date(item.created_at).getTime()) / 60_000));
+    return {
+      newCases: conversations.filter((item) => item.state === 'queued').length,
+      inProgress: conversations.filter((item) => item.state === 'human').length,
+      followUps: conversations.filter((item) => Boolean(item.follow_up_at)).length,
+      resolved: closed.length,
+      openedToday: conversations.filter((item) => new Date(item.created_at) >= today).length,
+      resolvedToday: closed.filter((item) => new Date(item.updated_at) >= today).length,
+      slaBreaches: conversations.filter((item) => item.state !== 'closed' && (now - new Date(item.updated_at).getTime()) / 60_000 > slaMinutes(item.protocols?.suggested_priority)).length,
+      averageResolutionMinutes: resolutionMinutes.length ? Math.round(resolutionMinutes.reduce((total, value) => total + value, 0) / resolutionMinutes.length) : null,
+      members: users.map(({ passwordHash: _passwordHash, ...user }) => user),
+      recentActivity: audit.map((event) => ({ eventType: event.event_type, actor: event.actor, createdAt: event.created_at, payload: event.payload ?? {} })),
+    };
+  }
+
+  async getOperationalHealth(): Promise<{ status: 'ok'; checkedAt: string; activeConversations: number; openAlerts: number }> {
+    const [conversations, alerts] = await Promise.all([
+      this.request<Array<{ id: string }>>('conversations?select=id&state=in.(queued,human)', {}, [200]),
+      this.request<Array<{ id: string }>>('operational_alerts?select=id&status=eq.open', {}, [200]),
+    ]);
+    return { status: 'ok', checkedAt: new Date().toISOString(), activeConversations: conversations.length, openAlerts: alerts.length };
   }
 
   async refreshOperationalAlerts(): Promise<{ created: number }> {
