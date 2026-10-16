@@ -222,6 +222,12 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     return supabaseStore.getOperationalOverview();
   });
 
+  app.post('/api/admin/jobs/alerts', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.refreshOperationalAlerts();
+  });
+
   app.post<{ Body: unknown }>('/api/admin/documents', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });

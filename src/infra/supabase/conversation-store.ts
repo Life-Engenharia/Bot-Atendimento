@@ -252,6 +252,19 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     return { newCases: conversations.filter((item) => item.state === 'queued').length, inProgress: conversations.filter((item) => item.state === 'human').length, followUps: conversations.filter((item) => Boolean(item.follow_up_at)).length, resolved: conversations.filter((item) => item.state === 'closed').length, members: users.map(({ passwordHash: _passwordHash, ...user }) => user), recentActivity: audit.map((event) => ({ eventType: event.event_type, actor: event.actor, createdAt: event.created_at })) };
   }
 
+  async refreshOperationalAlerts(): Promise<{ created: number }> {
+    const overdue = await this.request<Array<{ id: string }>>(
+      `conversations?select=id&state=in.(queued,human)&follow_up_at=lt.${encodeURIComponent(new Date().toISOString())}`,
+      {}, [200],
+    );
+    if (!overdue.length) return { created: 0 };
+    const existing = await this.request<Array<{ id: string }>>('operational_alerts?kind=eq.overdue_follow_up&status=eq.open&select=id', {}, [200]);
+    if (existing.length) return { created: 0 };
+    await this.request('operational_alerts', { method: 'POST', body: JSON.stringify({ kind: 'overdue_follow_up', title: 'Retornos vencidos', detail: `${overdue.length} retorno(s) aguardam ação.` }) }, [201]);
+    await this.audit('operational.alert_created', 'system', { kind: 'overdue_follow_up', count: overdue.length });
+    return { created: 1 };
+  }
+
   async audit(eventType: string, actor: string, payload: Record<string, unknown>): Promise<void> {
     await this.request(
       'audit_events',
