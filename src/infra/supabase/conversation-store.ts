@@ -53,6 +53,7 @@ export type OperationalDocument = {
   onCallMembers?: string | null;
 };
 export type OperationalOverview = { newCases: number; inProgress: number; followUps: number; resolved: number; members: Array<Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'area' | 'active'>>; recentActivity: Array<{ eventType: string; actor: string; createdAt: string }> };
+export type OperationalAlert = { id: string; kind: string; title: string; detail: string; status: 'open' | 'resolved'; createdAt: string };
 
 type Contact = { id: string };
 type StoredMessage = { id: string };
@@ -263,6 +264,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     await this.request('operational_alerts', { method: 'POST', body: JSON.stringify({ kind: 'overdue_follow_up', title: 'Retornos vencidos', detail: `${overdue.length} retorno(s) aguardam ação.` }) }, [201]);
     await this.audit('operational.alert_created', 'system', { kind: 'overdue_follow_up', count: overdue.length });
     return { created: 1 };
+  }
+
+  async listOperationalAlerts(): Promise<OperationalAlert[]> {
+    const rows = await this.request<Array<{ id: string; kind: string; title: string; detail: string; status: 'open' | 'resolved'; created_at: string }>>('operational_alerts?select=id,kind,title,detail,status,created_at&order=created_at.desc&limit=30', {}, [200]);
+    return rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, detail: row.detail, status: row.status, createdAt: row.created_at }));
+  }
+
+  async resolveOperationalAlert(id: string, actor: string): Promise<void> {
+    await this.request(`operational_alerts?id=eq.${encodeURIComponent(id)}&status=eq.open`, { method: 'PATCH', body: JSON.stringify({ status: 'resolved', resolved_at: new Date().toISOString() }) }, [204]);
+    await this.audit('operational.alert_resolved', actor, { alertId: id });
+  }
+
+  async setCurrentOnCallSchedule(id: string, actor: string): Promise<void> {
+    await this.request('operational_documents?category=eq.on_call_schedule&is_current=is.true', { method: 'PATCH', body: JSON.stringify({ is_current: false }) }, [204]);
+    await this.request(`operational_documents?id=eq.${encodeURIComponent(id)}&category=eq.on_call_schedule`, { method: 'PATCH', body: JSON.stringify({ is_current: true, published_by: actor, published_at: new Date().toISOString(), status: 'ready' }) }, [204]);
+    await this.audit('on_call_schedule.published', actor, { documentId: id });
   }
 
   async audit(eventType: string, actor: string, payload: Record<string, unknown>): Promise<void> {

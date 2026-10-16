@@ -95,6 +95,21 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.refreshOperationalAlerts();
   });
+  app.get('/api/admin/alerts', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.listOperationalAlerts();
+  });
+  app.post<{ Params: { id: string } }>('/api/admin/alerts/:id/resolve', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    await supabaseStore.resolveOperationalAlert(request.params.id, 'admin-dashboard'); return reply.code(204).send();
+  });
+  app.post<{ Params: { id: string } }>('/api/admin/documents/:id/publish-on-call', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    await supabaseStore.setCurrentOnCallSchedule(request.params.id, 'admin-dashboard'); return reply.code(204).send();
+  });
   app.post<{ Body: unknown }>('/api/admin/documents', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });
