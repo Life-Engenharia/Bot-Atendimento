@@ -143,6 +143,13 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const operatorEvents = new EventEmitter();
   operatorEvents.setMaxListeners(0);
   configureDevelopmentRequestLogging(app, environment);
+  app.addHook('onRequest', async (request, reply) => {
+    if (!environment.IAP_REQUIRED || !request.url.startsWith('/api/admin/')) return;
+    const identity = request.headers['x-goog-authenticated-user-email'];
+    const email = typeof identity === 'string' ? identity.replace(/^accounts\.google\.com:/, '').toLowerCase() : '';
+    const allowed = (environment.IAP_ALLOWED_EMAILS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (!email || (allowed.length > 0 && !allowed.includes(email))) return reply.code(403).send({ error: 'Acesso corporativo IAP não autorizado.' });
+  });
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
     request.rawBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
     try {

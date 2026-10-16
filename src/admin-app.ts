@@ -63,6 +63,13 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
     bodyLimit: 12 * 1024 * 1024,
   });
   configureDevelopmentRequestLogging(app, environment);
+  app.addHook('onRequest', async (request, reply) => {
+    if (!environment.IAP_REQUIRED || !request.url.startsWith('/api/admin/')) return;
+    const identity = request.headers['x-goog-authenticated-user-email'];
+    const email = typeof identity === 'string' ? identity.replace(/^accounts\.google\.com:/, '').toLowerCase() : '';
+    const allowed = (environment.IAP_ALLOWED_EMAILS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (!email || (allowed.length > 0 && !allowed.includes(email))) return reply.code(403).send({ error: 'Acesso corporativo IAP não autorizado.' });
+  });
 
   app.get('/health', async () => ({ status: 'ok', service: 'admin' }));
   app.get('/assets/life-logo.png', async (_request, reply) =>

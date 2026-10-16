@@ -20,6 +20,8 @@ const environmentSchema = z
     PLOOMES_USER_KEY: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     OPENAI_MODEL: z.string().min(1).optional(),
+    IAP_REQUIRED: z.coerce.boolean().optional(),
+    IAP_ALLOWED_EMAILS: z.string().optional(),
   })
   .superRefine((value, context) => {
     if (Boolean(value.SUPABASE_URL) !== Boolean(value.SUPABASE_API)) {
