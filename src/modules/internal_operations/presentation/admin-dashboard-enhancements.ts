@@ -60,7 +60,20 @@ export function enhancedAdminDashboardHtml(): string {
       if (alertsResponse.ok) { const alerts = await alertsResponse.json(), list = document.querySelector('#opsAlerts'); list.innerHTML = ''; if (!alerts.length) list.innerHTML = '<li><span>Nenhum alerta aberto.</span></li>'; alerts.filter(alert => alert.status === 'open').forEach(alert => { const row = document.createElement('li'), text = document.createElement('span'), button = document.createElement('button'); text.textContent = alert.title + ' · ' + alert.detail; button.textContent = 'Resolver'; button.onclick = async () => { await originalFetch('/api/admin/alerts/' + alert.id + '/resolve', { method: 'POST', headers: auth() }); render(); }; row.append(text, button); list.append(row); }); }
     } catch {}
   };
-  setTimeout(render, 350);
+  const addScheduleActions = async () => {
+    const response = await originalFetch('/api/admin/documents', { headers: auth() });
+    if (!response.ok) return;
+    const schedules = (await response.json()).filter(doc => doc.category === 'on_call_schedule');
+    document.querySelectorAll('#opsSchedules .doc').forEach((row, index) => {
+      const document = schedules[index]; if (!document) return;
+      const action = document.createElement('button');
+      action.type = 'button'; action.textContent = document.isCurrent ? 'Escala vigente' : 'Tornar vigente';
+      action.disabled = Boolean(document.isCurrent);
+      action.onclick = async () => { if (!confirm('Tornar esta a escala vigente? A escala atual será substituída.')) return; await originalFetch('/api/admin/documents/' + document.id + '/publish-on-call', { method: 'POST', headers: auth() }); await render(); await addScheduleActions(); };
+      row.append(action);
+    });
+  };
+  setTimeout(async () => { await render(); await addScheduleActions(); }, 350);
 })();
 </script>`;
   return adminDashboardHtml.replace('</body>', `${enhancement}</body>`);
