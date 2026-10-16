@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { loadEnvironment, type Environment } from './config/env.js';
 import { configureDevelopmentRequestLogging, logController, loggerOptions } from './config/logger.js';
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
+import { classifyOperationalDocument } from './infra/openai/operational-document-classifier.js';
 import type { OperationalConfigurationStore } from './modules/internal_operations/application/administrative-menu-service.js';
 import { enhancedAdminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard-enhancements.js';
 import { SmtpEmailSender, smtpConfigurationFromSettings } from './infra/email/smtp-email-sender.js';
@@ -100,6 +101,11 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalOverview();
   });
+  app.get('/api/admin/health', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.getOperationalHealth();
+  });
   app.post('/api/admin/jobs/alerts', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
@@ -129,7 +135,9 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
     if (!content.length || content.length > 8 * 1024 * 1024)
       return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
     const { contentBase64: _contentBase64, ...metadata } = document;
-    const saved = await supabaseStore.saveOperationalDocument({ ...metadata, sizeBytes: content.byteLength, content });
+    const insight = await classifyOperationalDocument(environment.OPENAI_API_KEY, environment.OPENAI_MODEL, { fileName: metadata.fileName, mediaType: metadata.mediaType, content });
+    const classified = insight && (metadata.category === 'other' || insight.confidence === 'high') ? { ...metadata, ...insight, onCallDate: metadata.onCallDate ?? insight.onCallDate, onCallMembers: metadata.onCallMembers ?? insight.onCallMembers } : metadata;
+    const saved = await supabaseStore.saveOperationalDocument({ ...classified, sizeBytes: content.byteLength, content });
     return reply.code(201).send(saved satisfies OperationalDocument);
   });
   app.put<{ Params: { key: string }; Body: unknown }>('/api/admin/settings/:key', async (request, reply) => {

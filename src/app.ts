@@ -17,6 +17,7 @@ import {
   IncomingMessage,
 } from './modules/webhook/application/webhook-processor.js';
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
+import { classifyOperationalDocument } from './infra/openai/operational-document-classifier.js';
 import { AdministrativeMenuService } from './modules/internal_operations/application/administrative-menu-service.js';
 import { OpenAiTriageClient } from './infra/openai/openai-triage-client.js';
 import { OpenAiResponseRefiner } from './infra/openai/openai-response-refiner.js';
@@ -231,6 +232,11 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalOverview();
   });
+  app.get('/api/admin/health', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.getOperationalHealth();
+  });
 
   app.post('/api/admin/jobs/alerts', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
@@ -260,7 +266,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     const content = Buffer.from(document.contentBase64, 'base64');
     if (!content.length || content.length > 8 * 1024 * 1024) return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
     const { contentBase64: _contentBase64, ...metadata } = document;
-    return reply.code(201).send(await supabaseStore.saveOperationalDocument({ ...metadata, sizeBytes: content.byteLength, content }));
+    const insight = await classifyOperationalDocument(environment.OPENAI_API_KEY, environment.OPENAI_MODEL, { fileName: metadata.fileName, mediaType: metadata.mediaType, content });
+    const classified = insight && (metadata.category === 'other' || insight.confidence === 'high') ? { ...metadata, ...insight, onCallDate: metadata.onCallDate ?? insight.onCallDate, onCallMembers: metadata.onCallMembers ?? insight.onCallMembers } : metadata;
+    return reply.code(201).send(await supabaseStore.saveOperationalDocument({ ...classified, sizeBytes: content.byteLength, content }));
   });
 
   app.post<{ Body: unknown }>('/api/admin/users', async (request, reply) => {
