@@ -1,11 +1,14 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { loadEnvironment, type Environment } from './config/env.js';
 import { configureDevelopmentRequestLogging, logController, loggerOptions } from './config/logger.js';
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
 import type { OperationalConfigurationStore } from './modules/internal_operations/application/administrative-menu-service.js';
-import { adminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard.js';
+import { enhancedAdminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard-enhancements.js';
 import { SmtpEmailSender, smtpConfigurationFromSettings } from './infra/email/smtp-email-sender.js';
+import type { OperationalDocument } from './infra/supabase/conversation-store.js';
 
 export type AdminAppDependencies = {
   environment?: Environment;
@@ -35,31 +38,69 @@ const emailSendSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   text: z.string().trim().min(1).max(10_000),
 });
+const documentUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mediaType: z.string().trim().min(1).max(120),
+  contentBase64: z.string().min(1).max(11_200_000),
+  category: z.enum(['on_call_schedule', 'procedure', 'commercial', 'technical', 'policy', 'other']),
+  confidence: z.enum(['high', 'medium', 'needs_review']),
+  summary: z.string().trim().min(3).max(500),
+  status: z.enum(['ready', 'needs_review']),
+  onCallDate: z.string().trim().max(120).optional(),
+  onCallMembers: z.string().trim().max(500).optional(),
+});
 
 export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyInstance {
   const environment = dependencies.environment ?? loadEnvironment();
-  const store =
-    dependencies.operationalConfigurationStore ??
-    (environment.SUPABASE_URL && environment.SUPABASE_API
+  const supabaseStore =
+    environment.SUPABASE_URL && environment.SUPABASE_API
       ? new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API)
-      : undefined);
+      : undefined;
+  const store = dependencies.operationalConfigurationStore ?? supabaseStore;
   const app = Fastify({
     logger: loggerOptions(environment),
     logController: logController(environment),
+    bodyLimit: 12 * 1024 * 1024,
   });
   configureDevelopmentRequestLogging(app, environment);
 
   app.get('/health', async () => ({ status: 'ok', service: 'admin' }));
+  app.get('/assets/life-logo.png', async (_request, reply) =>
+    reply.type('image/png').send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
+  );
   app.get('/', async (_request, reply) => {
     if (!store || !environment.ADMIN_DASHBOARD_TOKEN)
       return reply.code(503).type('text/plain').send('Painel administrativo não configurado.');
-    return reply.type('text/html; charset=utf-8').send(adminDashboardHtml);
+    return reply.type('text/html; charset=utf-8').send(enhancedAdminDashboardHtml());
   });
   app.get('/api/admin/settings', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });
     if (!store) return reply.code(503).send({ error: 'Painel administrativo não configurado.' });
     return store.listSettings();
+  });
+  app.get('/api/admin/documents', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    return supabaseStore.listOperationalDocuments();
+  });
+  app.get('/api/admin/overview', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.getOperationalOverview();
+  });
+  app.post<{ Body: unknown }>('/api/admin/documents', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    const document = documentUploadSchema.parse(request.body);
+    const content = Buffer.from(document.contentBase64, 'base64');
+    if (!content.length || content.length > 8 * 1024 * 1024)
+      return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
+    const { contentBase64: _contentBase64, ...metadata } = document;
+    const saved = await supabaseStore.saveOperationalDocument({ ...metadata, sizeBytes: content.byteLength, content });
+    return reply.code(201).send(saved satisfies OperationalDocument);
   });
   app.put<{ Params: { key: string }; Body: unknown }>('/api/admin/settings/:key', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
