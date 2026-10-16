@@ -4,6 +4,7 @@ import fastifySwaggerUi from '@fastify/swagger-ui';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { loadEnvironment, Environment } from './config/env.js';
@@ -27,7 +28,7 @@ import type {
   OperationalConfigurationStore,
   OperationalSetting,
 } from './modules/internal_operations/application/administrative-menu-service.js';
-import { adminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard.js';
+import { enhancedAdminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard-enhancements.js';
 import { operatorInboxHtml } from './modules/internal_operations/presentation/operator-inbox.js';
 import type { AppRole, AppUser } from './infra/supabase/conversation-store.js';
 import { PloomesClient } from './infra/ploomes/ploomes-client.js';
@@ -83,6 +84,14 @@ const emailSendSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   text: z.string().trim().min(1).max(10_000),
 });
+const documentUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(180), mediaType: z.string().trim().min(1).max(120),
+  contentBase64: z.string().min(1).max(11_200_000),
+  category: z.enum(['on_call_schedule', 'procedure', 'commercial', 'technical', 'policy', 'other']),
+  confidence: z.enum(['high', 'medium', 'needs_review']), summary: z.string().trim().min(3).max(500),
+  status: z.enum(['ready', 'needs_review']),
+  onCallDate: z.string().trim().max(120).optional(), onCallMembers: z.string().trim().max(500).optional(),
+});
 
 export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const environment = dependencies.environment ?? loadEnvironment();
@@ -128,9 +137,11 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const app = Fastify({
     logger: loggerOptions(environment),
     logController: logController(environment),
-    // O webhook recebe apenas eventos JSON da Meta; mídia é baixada posteriormente pela API.
-    bodyLimit: 1_048_576,
+    // O painel administrativo aceita documentos de até 8 MB; o endpoint valida o limite menor.
+    bodyLimit: 12 * 1024 * 1024,
   });
+  const operatorEvents = new EventEmitter();
+  operatorEvents.setMaxListeners(0);
   configureDevelopmentRequestLogging(app, environment);
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
     request.rawBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
@@ -163,7 +174,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.get('/admin', async (_request, reply) => {
     if (!operationalConfigurationStore || !environment.ADMIN_DASHBOARD_TOKEN)
       return reply.code(503).type('text/plain').send('Dashboard administrativa não configurada.');
-    return reply.type('text/html; charset=utf-8').send(adminDashboardHtml);
+    return reply.type('text/html; charset=utf-8').send(enhancedAdminDashboardHtml());
   });
 
   app.get('/api/admin/settings', async (request, reply) => {
@@ -197,6 +208,28 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     if (!supabaseStore) return reply.code(503).send({ error: 'Painel não configurado.' });
     const users = await supabaseStore.listUsers();
     return users.map(({ passwordHash: _passwordHash, ...user }) => user);
+  });
+
+  app.get('/api/admin/documents', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    return supabaseStore.listOperationalDocuments();
+  });
+
+  app.get('/api/admin/overview', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.getOperationalOverview();
+  });
+
+  app.post<{ Body: unknown }>('/api/admin/documents', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    const document = documentUploadSchema.parse(request.body);
+    const content = Buffer.from(document.contentBase64, 'base64');
+    if (!content.length || content.length > 8 * 1024 * 1024) return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
+    const { contentBase64: _contentBase64, ...metadata } = document;
+    return reply.code(201).send(await supabaseStore.saveOperationalDocument({ ...metadata, sizeBytes: content.byteLength, content }));
   });
 
   app.post<{ Body: unknown }>('/api/admin/users', async (request, reply) => {
@@ -384,6 +417,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
           remarketingNav.classList.toggle('hidden',!['admin','coordination','commercial'].includes(role));
           try{
             await window.load();
+            window.connectLiveUpdates?.();
             document.getElementById('login').classList.add('hidden');
             document.getElementById('app').classList.remove('hidden');
           }catch{
@@ -394,6 +428,25 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       })();
     </script>`;
     return reply.type('text/html; charset=utf-8').send(operatorInboxHtml.replace('</body>', `${enhancements}</body>`));
+  });
+
+  app.get('/api/operator/events', async (request, reply) => {
+    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
+    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    });
+    reply.raw.write('event: connected\ndata: {}\n\n');
+    const sendRefresh = () => reply.raw.write('event: inbox\ndata: {}\n\n');
+    const keepAlive = setInterval(() => reply.raw.write(': keep-alive\n\n'), 25_000);
+    operatorEvents.on('inbox', sendRefresh);
+    request.raw.on('close', () => {
+      clearInterval(keepAlive);
+      operatorEvents.off('inbox', sendRefresh);
+    });
   });
 
   app.get<{ Querystring: { includeClosed?: string } }>('/api/operator/conversations', async (request, reply) => {
@@ -555,6 +608,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const messages = incomingMessages(request.body);
       if (persistedMenuService) {
         const result = await persistedMenuService.process(messages);
+        if (result.processed > 0) operatorEvents.emit('inbox');
         return reply.code(200).send({
           received: true,
           processed: result.processed,
@@ -569,6 +623,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       if (outboundSender) {
         await Promise.allSettled(responses.map((response) => outboundSender.sendText(response.to, response.text)));
       }
+      if (result.processed > 0) operatorEvents.emit('inbox');
       return reply.code(200).send({
         received: true,
         processed: result.processed,

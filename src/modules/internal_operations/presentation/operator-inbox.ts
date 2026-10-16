@@ -230,6 +230,18 @@ button {
   gap: 7px;
   margin-top: 13px;
 }
+.alert-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 11px;
+  color: #526a7a;
+  font-size: 11px;
+}
+.alert-control button {
+  white-space: nowrap;
+}
 .tools input,
 .tools select {
   width: 100%;
@@ -661,6 +673,10 @@ button {
 </select>
 <button id="refresh" type="button" class="btn alt">Atualizar fila</button>
 </div>
+<div class="alert-control">
+<span id="alertStatus" aria-live="polite">Alertas sonoros desativados</span>
+<button id="alerts" type="button" class="btn alt">Ativar som</button>
+</div>
 </div>
 <ul id="list" class="list">
 </ul>
@@ -745,7 +761,11 @@ let items = [],
   query = "",
   priority = "",
   modalAction = null,
-  crmLoaded = false;
+  crmLoaded = false,
+  alertsEnabled = false,
+  lastInboxCheckAt = Date.now(),
+  knownUpdates = new Map(),
+  eventController = null;
 const roles = ["admin", "coordination", "commercial"];
 const auth = () => ({
   Authorization: "Bearer " + sessionStorage.getItem("operatorToken"),
@@ -799,6 +819,60 @@ function note(t, ok = false) {
   const e = document.getElementById("notice");
   e.textContent = t;
   e.className = "notice " + (ok ? "ok" : "");
+}
+function updateAlertControl() {
+  const enabled = alertsEnabled;
+  document.getElementById("alertStatus").textContent = enabled
+    ? "Tempo real e som ativos"
+    : "Tempo real ativo · som desativado";
+  document.getElementById("alerts").textContent = enabled
+    ? "Desativar som"
+    : "Ativar som";
+}
+function playAlert() {
+  if (!alertsEnabled) return;
+  try {
+    const context = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = context.createOscillator();
+    const volume = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, context.currentTime);
+    oscillator.frequency.setValueAtTime(660, context.currentTime + 0.16);
+    volume.gain.setValueAtTime(0.06, context.currentTime);
+    volume.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.38);
+    oscillator.connect(volume).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.4);
+    oscillator.onended = () => context.close();
+  } catch (_) {}
+}
+function notifyIncoming(conversation, message) {
+  playAlert();
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("Nova mensagem · Central Life", {
+      body: (conversation.contactName || conversation.contactPhone) + ": " + (message.content || "Mensagem recebida"),
+      tag: "life-incoming-" + message.id,
+    });
+  }
+}
+async function checkForIncoming(nextItems) {
+  const changed = nextItems.filter((conversation) =>
+    knownUpdates.has(conversation.id) && knownUpdates.get(conversation.id) !== conversation.updatedAt,
+  );
+  const previousCheck = lastInboxCheckAt;
+  lastInboxCheckAt = Date.now();
+  knownUpdates = new Map(nextItems.map((conversation) => [conversation.id, conversation.updatedAt]));
+  if (!alertsEnabled || !changed.length) return;
+  const details = await Promise.all(
+    changed.map((conversation) => api("/api/operator/conversations/" + conversation.id).catch(() => null)),
+  );
+  details.forEach((detail) => {
+    if (!detail) return;
+    const inbound = detail.messages.filter((message) =>
+      message.direction === "inbound" && new Date(message.receivedAt).getTime() > previousCheck,
+    );
+    inbound.forEach((message) => notifyIncoming(detail, message));
+  });
 }
 function renderQueue() {
   const me = sessionStorage.getItem("operatorName");
@@ -864,10 +938,40 @@ function renderQueue() {
   });
 }
 async function load() {
-  items = await api("/api/operator/conversations");
+  const nextItems = await api("/api/operator/conversations");
+  if (!knownUpdates.size) knownUpdates = new Map(nextItems.map((conversation) => [conversation.id, conversation.updatedAt]));
+  else await checkForIncoming(nextItems);
+  items = nextItems;
   renderQueue();
   if (selected && items.some((i) => i.id === selected.id))
     await open(selected.id);
+}
+async function connectLiveUpdates() {
+  eventController?.abort();
+  eventController = new AbortController();
+  try {
+    const response = await fetch("/api/operator/events", {
+      headers: auth(),
+      signal: eventController.signal,
+    });
+    if (!response.ok || !response.body) throw Error("Canal em tempo real indisponível");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) throw Error("Canal em tempo real encerrado");
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const events = buffer.split("\\n\\n");
+      buffer = events.pop();
+      events.forEach((event) => {
+        if (event.includes("event: inbox")) load().catch(() => {});
+      });
+    }
+  } catch (_) {
+    if (!eventController?.signal.aborted && sessionStorage.getItem("operatorToken"))
+      setTimeout(connectLiveUpdates, 2_000);
+  }
 }
 function humanMessage(content) {
   const m = String(content || "").match(/^([^:]{2,80}):\s([\s\S]*)$/);
@@ -1094,6 +1198,7 @@ document.getElementById("loginForm").onsubmit = async (e) => {
       .getElementById("commercialNav")
       .classList.toggle("hidden", !roles.includes(s.user.role));
     await load();
+    connectLiveUpdates();
     document.getElementById("login").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
   } catch (err) {
@@ -1129,6 +1234,21 @@ document.getElementById("priority").onchange = (e) => {
 };
 document.getElementById("refresh").onclick = () =>
   load().catch((e) => note(e.message));
+document.getElementById("alerts").onclick = async () => {
+  alertsEnabled = !alertsEnabled;
+  if (alertsEnabled) {
+    try {
+      const context = new (window.AudioContext || window.webkitAudioContext)();
+      await context.resume();
+      await context.close();
+    } catch (_) {}
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+  }
+  localStorage.setItem("lifeIncomingAlerts", String(alertsEnabled));
+  updateAlertControl();
+};
 document.getElementById("claim").onclick = async () => {
   try {
     await api("/api/operator/conversations/" + selected.id + "/claim", {
@@ -1205,7 +1325,10 @@ document.getElementById("composer").onsubmit = async (e) => {
   }
 };
 document.getElementById("logout").onclick = () => {
+  eventController?.abort();
   sessionStorage.clear();
   location.reload();
 };
+alertsEnabled = localStorage.getItem("lifeIncomingAlerts") === "true";
+updateAlertControl();
 </script></body></html>`;
