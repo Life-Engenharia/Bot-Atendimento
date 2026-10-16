@@ -39,6 +39,20 @@ export type StoredConversation = {
 
 export type AppRole = 'admin' | 'coordination' | 'commercial' | 'technical' | 'on_call' | 'viewer';
 export type AppUser = { id: string; name: string; email: string; passwordHash: string; role: AppRole; area: 'commercial' | 'technical' | 'on_call' | 'coordination'; active: boolean };
+export type OperationalDocument = {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  sizeBytes: number;
+  category: 'on_call_schedule' | 'procedure' | 'commercial' | 'technical' | 'policy' | 'other';
+  confidence: 'high' | 'medium' | 'needs_review';
+  summary: string;
+  status: 'ready' | 'needs_review';
+  createdAt: string;
+  onCallDate?: string | null;
+  onCallMembers?: string | null;
+};
+export type OperationalOverview = { newCases: number; inProgress: number; followUps: number; resolved: number; members: Array<Pick<AppUser, 'id' | 'name' | 'email' | 'role' | 'area' | 'active'>>; recentActivity: Array<{ eventType: string; actor: string; createdAt: string }> };
 
 type Contact = { id: string };
 type StoredMessage = { id: string };
@@ -116,6 +130,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [204],
     );
+    await this.request(
+      'conversations?id=eq.' + encodeURIComponent(conversation.id),
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ updated_at: new Date().toISOString() }),
+      },
+      [204],
+    );
     await this.audit('webhook.message_received', 'meta', {
       messageId: message.id,
       from: message.from,
@@ -187,6 +209,47 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         expires_at: new Date(Date.now() + 90 * 24 * 60 * 60_000).toISOString(),
       }),
     }, [201]);
+  }
+
+  async listOperationalDocuments(): Promise<OperationalDocument[]> {
+    const rows = await this.request<Array<{
+      id: string; file_name: string; media_type: string; size_bytes: number;
+      category: OperationalDocument['category']; confidence: OperationalDocument['confidence'];
+      summary: string; status: OperationalDocument['status']; created_at: string; on_call_date: string | null; on_call_members: string | null;
+    }>>('operational_documents?select=id,file_name,media_type,size_bytes,category,confidence,summary,status,created_at,on_call_date,on_call_members&order=created_at.desc', {}, [200]);
+    return rows.map((row) => ({
+      id: row.id, fileName: row.file_name, mediaType: row.media_type, sizeBytes: row.size_bytes,
+      category: row.category, confidence: row.confidence, summary: row.summary, status: row.status, createdAt: row.created_at, onCallDate: row.on_call_date, onCallMembers: row.on_call_members,
+    }));
+  }
+
+  async saveOperationalDocument(input: Omit<OperationalDocument, 'id' | 'createdAt'> & { content: Uint8Array }): Promise<OperationalDocument> {
+    const fileName = safeFileName(input.fileName);
+    const storagePath = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${fileName}`;
+    await this.uploadObject('operational-documents', storagePath, input.mediaType, input.content);
+    const rows = await this.request<Array<{
+      id: string; file_name: string; media_type: string; size_bytes: number;
+      category: OperationalDocument['category']; confidence: OperationalDocument['confidence'];
+      summary: string; status: OperationalDocument['status']; created_at: string; on_call_date: string | null; on_call_members: string | null;
+    }>>('operational_documents', {
+      method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({
+        storage_path: storagePath, file_name: fileName, media_type: input.mediaType, size_bytes: input.sizeBytes,
+        category: input.category, confidence: input.confidence, summary: input.summary, status: input.status, on_call_date: input.onCallDate ?? null, on_call_members: input.onCallMembers ?? null,
+      }),
+    }, [201]);
+    const row = rows[0];
+    if (!row) throw new Error('O documento foi enviado, mas não pôde ser registrado.');
+    await this.audit('operational_document.uploaded', 'admin-dashboard', { documentId: row.id, category: row.category, fileName });
+    return { id: row.id, fileName: row.file_name, mediaType: row.media_type, sizeBytes: row.size_bytes, category: row.category, confidence: row.confidence, summary: row.summary, status: row.status, createdAt: row.created_at, onCallDate: row.on_call_date, onCallMembers: row.on_call_members };
+  }
+
+  async getOperationalOverview(): Promise<OperationalOverview> {
+    const [conversations, users, audit] = await Promise.all([
+      this.request<Array<{ state: string; follow_up_at: string | null }>>('conversations?select=state,follow_up_at', {}, [200]),
+      this.listUsers(),
+      this.request<Array<{ event_type: string; actor: string; created_at: string }>>('audit_events?select=event_type,actor,created_at&order=created_at.desc&limit=8', {}, [200]),
+    ]);
+    return { newCases: conversations.filter((item) => item.state === 'queued').length, inProgress: conversations.filter((item) => item.state === 'human').length, followUps: conversations.filter((item) => Boolean(item.follow_up_at)).length, resolved: conversations.filter((item) => item.state === 'closed').length, members: users.map(({ passwordHash: _passwordHash, ...user }) => user), recentActivity: audit.map((event) => ({ eventType: event.event_type, actor: event.actor, createdAt: event.created_at })) };
   }
 
   async audit(eventType: string, actor: string, payload: Record<string, unknown>): Promise<void> {
@@ -597,11 +660,28 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     headers.set('apikey', this.serviceKey);
     headers.set('Content-Type', 'application/json');
     headers.set('Accept', 'application/json');
-    const response = await fetch(new URL(`/rest/v1/${path}`, this.url), {
-      ...init,
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
+    const url = new URL(`/rest/v1/${path}`, this.url);
+    const attempts = !init.method || init.method === 'GET' ? 2 : 1;
+    let response: Response | undefined;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        response = await fetch(url, {
+          ...init,
+          headers,
+          signal: AbortSignal.timeout(15_000),
+        });
+        break;
+      } catch (error) {
+        if (attempt + 1 < attempts && isTimeout(error)) continue;
+        if (isTimeout(error)) {
+          const unavailable = new Error('O banco de dados demorou para responder. Tente novamente em instantes.');
+          Object.assign(unavailable, { statusCode: 503 });
+          throw unavailable;
+        }
+        throw error;
+      }
+    }
+    if (!response) throw new Error('Não foi possível consultar o banco de dados.');
     if (response.status === 409) return undefined as T;
     if (!success.includes(response.status))
       throw new Error(`Supabase request failed (${response.status}).`);
@@ -611,14 +691,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   }
 
   private async uploadPrivateObject(path: string, mediaType: string, content: Uint8Array): Promise<void> {
-    const response = await fetch(new URL(`/storage/v1/object/protocol-attachments/${path}`, this.url), {
+    await this.uploadObject('protocol-attachments', path, mediaType, content);
+  }
+
+  private async uploadObject(bucket: string, path: string, mediaType: string, content: Uint8Array): Promise<void> {
+    const response = await fetch(new URL(`/storage/v1/object/${bucket}/${path}`, this.url), {
       method: 'POST',
       headers: { apikey: this.serviceKey, Authorization: `Bearer ${this.serviceKey}`, 'Content-Type': mediaType, 'x-upsert': 'false' },
       body: Buffer.from(content),
       signal: AbortSignal.timeout(30_000),
     });
-    if (!response.ok) throw new Error(`Não foi possível salvar a mídia privada (${response.status}).`);
+    if (!response.ok) throw new Error(`Não foi possível salvar o arquivo privado (${response.status}).`);
   }
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
 }
 
 function safeFileName(value: string): string {
