@@ -1498,6 +1498,24 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     await this.audit('conversation.closed', actor, { conversationId: id });
   }
 
+  async reopenConversation(id: string, actor: string): Promise<void> {
+    await this.request(
+      `conversations?id=eq.${encodeURIComponent(id)}&state=eq.closed`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          state: 'queued',
+          assigned_operator: null,
+          assigned_at: null,
+          follow_up_at: null,
+          resolution_note: null,
+        }),
+      },
+      [204],
+    );
+    await this.audit('conversation.reopened_by_operator', actor, { conversationId: id });
+  }
+
   async registerManualPloomes(
     conversationId: string,
     protocolId: string,

@@ -460,6 +460,33 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     },
   );
 
+  app.post<{ Params: { id: string } }>(
+    '/api/operator/conversations/:id/reopen',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor || actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil não pode reabrir atendimentos.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      if (conversation.state !== 'closed')
+        return reply.code(409).send({ error: 'Somente atendimentos concluídos podem ser reabertos.' });
+      await supabaseStore.reopenConversation(conversation.id, actor.name);
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.conversation_reopened',
+      });
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
+
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/admin/users/:id/password',
     async (request, reply) => {

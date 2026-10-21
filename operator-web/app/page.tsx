@@ -220,6 +220,12 @@ export default function OperatorPage() {
       setClosing(false);
     }
   };
+  const reopen = async () => {
+    if (!selected) return;
+    await api('/api/operator/conversations/' + selected.id + '/reopen', { method: 'POST' });
+    await load();
+    await open(selected.id);
+  };
   const send = async (e: FormEvent) => {
     e.preventDefault();
     if (!selected || !text.trim()) return;
@@ -545,7 +551,10 @@ export default function OperatorPage() {
               ))}
             </div>
             {selected.state === 'closed' ? (
-              <div className="closed-notice">Atendimento concluído. A conversa será reaberta quando o cliente enviar uma nova mensagem.</div>
+              <div className="closed-notice">
+                <span>Atendimento concluído. O histórico está preservado.</span>
+                <button className="btn" onClick={reopen}>Reabrir atendimento</button>
+              </div>
             ) : (
               <form className="composer" onSubmit={send}>
                 <textarea
