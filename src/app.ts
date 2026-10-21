@@ -1318,6 +1318,30 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     return reply.code(statusCode).send({ error: message });
   });
 
+  // Mantém alertas de SLA e casos críticos atualizados mesmo sem o painel aberto.
+  // O timer é encerrado junto com o Fastify para não manter processos de teste vivos.
+  if (supabaseStore) {
+    const refreshInterval = setInterval(() => {
+      void supabaseStore
+        .refreshOperationalAlerts()
+        .then((result) => {
+          if (result.created) {
+            operatorEvents.emit('inbox');
+            return sendOperationalAlertEmail(
+              result.created,
+              supabaseStore,
+              operationalConfigurationStore,
+              environment,
+            );
+          }
+          return undefined;
+        })
+        .catch((error) => app.log.error({ err: error }, 'operational_alert_refresh_failed'));
+    }, 60_000);
+    refreshInterval.unref?.();
+    app.addHook('onClose', async () => clearInterval(refreshInterval));
+  }
+
   return app;
 }
 
