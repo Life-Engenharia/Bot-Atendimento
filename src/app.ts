@@ -238,7 +238,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
               if (result.processed > 0) operatorEvents.emit('inbox');
               await supabaseStore.completeWebhookJob(job.id);
             } catch (error) {
-              await supabaseStore.failWebhookJob(job.id, error);
+              await supabaseStore.failWebhookJob(job.id, error, job.attempts);
               app.log.error({ err: error, jobId: job.id }, 'webhook_job_failed');
             }
           }

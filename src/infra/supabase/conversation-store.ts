@@ -332,20 +332,27 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     );
   }
 
-  async failWebhookJob(id: string, error: unknown): Promise<void> {
+  async failWebhookJob(id: string, error: unknown, attempts = 1): Promise<void> {
     const message = error instanceof Error ? error.message : 'Falha desconhecida';
+    const permanentlyFailed = attempts >= 5;
     await this.request(
       `webhook_jobs?id=eq.${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
         body: JSON.stringify({
-          status: 'queued',
+          status: permanentlyFailed ? 'failed' : 'queued',
           last_error: message.slice(0, 1000),
-          available_at: new Date(Date.now() + 60_000).toISOString(),
+          available_at: new Date(Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1))).toISOString(),
         }),
       },
       [204],
     );
+    if (permanentlyFailed)
+      await this.audit('webhook.job_dead_lettered', 'system', {
+        jobId: id,
+        attempts,
+        error: message.slice(0, 500),
+      });
   }
 
   async saveMediaAttachment(
