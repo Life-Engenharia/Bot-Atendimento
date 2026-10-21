@@ -169,6 +169,22 @@ describe('persisted menu service', () => {
     expect(store.audits).toContain('technical.assistance_avulsa_routed');
   });
 
+  it('accepts "não sei" during the Life history check and continues the flow', async () => {
+    const store = new FakeStore();
+    store.conversation = {
+      ...store.conversation,
+      state: 'collecting',
+      route: 'technical',
+      context: { contactName: 'Ana', company: 'Clínica Alfa', location: 'Unidade Norte' },
+    };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    await service.process([{ id: 'wamid-unknown-history', from: '+5511999999999', text: 'não sei' }]);
+
+    expect(store.conversation.route).toBe('commercial');
+    expect(store.conversation.context.service).toBe('Assistência avulsa');
+  });
+
   it('asks for technical confirmation and prioritizes critical stoppage without contingency as P1', async () => {
     const store = new FakeStore();
     store.conversation = {

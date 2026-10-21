@@ -905,6 +905,8 @@ function asksWhichDetails(value: string): boolean {
 
 function hasNoLifeHistory(value: string): boolean {
   return (
+    /^(não|nao)\s+(sei|informado|tenho certeza)$/i.test(value.trim()) ||
+    /^(desconheço|desconheco|não informado|nao informado)$/i.test(value.trim()) ||
     /^(não|nao|sem)(\s+(tenho|contrato|hist[oó]rico|v[ií]nculo))?$/i.test(value.trim()) ||
     /(sem contrato|não tenho contrato|nao tenho contrato|nunca.*life)/i.test(value)
   );
