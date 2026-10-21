@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+type LoginSession = { token?: string; user?: { name?: string; role?: string } };
+
 export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') || '';
   let email = '';
@@ -9,7 +11,12 @@ export async function POST(request: Request) {
     email = String(body.email || '');
     password = String(body.password || '');
   } else {
-    const form = await request.formData();
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return NextResponse.json({ error: 'Formulário de login inválido.' }, { status: 400 });
+    }
     email = String(form.get('email') || '');
     password = String(form.get('password') || '');
   }
@@ -29,23 +36,33 @@ export async function POST(request: Request) {
     );
   }
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'E-mail ou senha inválidos.' }));
+    const raw = await response.text().catch(() => '');
+    let error: { error?: string } = {};
+    try {
+      error = raw ? (JSON.parse(raw) as { error?: string }) : {};
+    } catch {
+      error = {};
+    }
+    const message = error.error || `Backend indisponível (${response.status}).`;
     if (contentType.includes('application/json'))
-      return NextResponse.json(
-        { error: error.error || 'E-mail ou senha inválidos.' },
-        { status: response.status },
-      );
-    return NextResponse.redirect(new URL(`/?loginError=${encodeURIComponent(error.error || 'E-mail ou senha inválidos.')}`, request.url), 303);
+      return NextResponse.json({ error: message }, { status: response.status });
+    return NextResponse.redirect(new URL(`/?loginError=${encodeURIComponent(message)}`, request.url), 303);
   }
-  const session = await response.json().catch(() => null);
+  const raw = await response.text().catch(() => '');
+  let session: LoginSession | null = null;
+  try {
+    session = raw ? (JSON.parse(raw) as LoginSession) : null;
+  } catch {
+    session = null;
+  }
   if (!session?.token || !session?.user)
     return NextResponse.json({ error: 'O backend retornou uma sessão inválida.' }, { status: 502 });
   if (contentType.includes('application/json')) return NextResponse.json(session);
   const target = new URL('/', request.url);
   target.hash = new URLSearchParams({
     operatorToken: session.token,
-    operatorName: session.user.name,
-    operatorRole: session.user.role,
+    operatorName: session.user.name || 'Operador',
+    operatorRole: session.user.role || 'viewer',
   }).toString();
   return NextResponse.redirect(target, 303);
 }

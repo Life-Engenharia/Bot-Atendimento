@@ -36,16 +36,22 @@ type Attachment = {
 type ActionKind = 'followup' | 'ploomesManual' | 'serviceOrder' | null;
 const apiBase = '';
 const auth = () => ({ Authorization: `Bearer ${sessionStorage.getItem('operatorToken') || ''}` });
-async function api(path: string, init: RequestInit = {}) {
+async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const r = await fetch(apiBase + path, {
     ...init,
     headers: { ...auth(), ...(init.headers || {}) },
   });
-  if (!r.ok)
-    throw new Error(
-      (await r.json().catch(() => ({}))).error || 'Não foi possível concluir a ação.',
-    );
-  return r.status === 204 ? null : r.json();
+  const raw = r.status === 204 ? '' : await r.text().catch(() => '');
+  let body: unknown = {};
+  try {
+    body = raw ? JSON.parse(raw) : {};
+  } catch {
+    body = {};
+  }
+  const errorMessage =
+    body && typeof body === 'object' && 'error' in body ? String(body.error) : undefined;
+  if (!r.ok) throw new Error(errorMessage || `A API retornou HTTP ${r.status}.`);
+  return body as T;
 }
 
 export default function OperatorPage() {
@@ -68,11 +74,11 @@ export default function OperatorPage() {
     [actionError, setActionError] = useState(''),
     [acting, setActing] = useState(false);
   const load = async () => {
-    const rows = await api('/api/operator/conversations?includeClosed=true');
+    const rows = await api<Conversation[]>('/api/operator/conversations?includeClosed=true');
     setItems(rows);
     if (selected) {
       const current = rows.find((x: Conversation) => x.id === selected.id);
-      if (current) setSelected(await api('/api/operator/conversations/' + current.id));
+      if (current) setSelected(await api<Conversation>('/api/operator/conversations/' + current.id));
     }
   };
   useEffect(() => {
@@ -171,7 +177,8 @@ export default function OperatorPage() {
     ['Retorno / atenção', visible.filter((c) => c.state !== 'closed' && !!c.followUpAt)],
     ['Concluídos', visible.filter((c) => c.state === 'closed')],
   ] as [string, Conversation[]][];
-  const open = async (id: string) => setSelected(await api('/api/operator/conversations/' + id));
+  const open = async (id: string) =>
+    setSelected(await api<Conversation>('/api/operator/conversations/' + id));
   const claim = async () => {
     if (!selected) return;
     await api('/api/operator/conversations/' + selected.id + '/claim', { method: 'POST' });
@@ -280,7 +287,7 @@ export default function OperatorPage() {
   };
   const openAttachment = async (attachment: Attachment) => {
     if (!selected || attachment.status !== 'stored') return;
-    const result = await api(
+    const result = await api<{ url: string }>(
       '/api/operator/conversations/' + selected.id + '/attachments/' + attachment.id + '/url',
     );
     window.open(result.url, '_blank', 'noopener');
