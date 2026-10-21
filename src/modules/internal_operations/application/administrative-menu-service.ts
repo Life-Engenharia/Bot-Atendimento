@@ -6,13 +6,13 @@ export type AdministrativeResponse = {
 
 export type OperationalSetting = {
   key:
-  | 'responsaveis'
-  | 'escalas'
-  | 'horarios'
-  | 'roteamento'
-  | 'prioridades'
-  | 'privacidade'
-  | 'email';
+    | 'responsaveis'
+    | 'escalas'
+    | 'horarios'
+    | 'roteamento'
+    | 'prioridades'
+    | 'privacidade'
+    | 'email';
   value: Record<string, string>;
 };
 
@@ -46,7 +46,7 @@ export class AdministrativeMenuService {
   constructor(
     private readonly adminPhone: string,
     private readonly store: OperationalConfigurationStore,
-  ) { }
+  ) {}
 
   async handle(phone: string, text?: string): Promise<AdministrativeResponse | undefined> {
     const command = normalize(text);

@@ -15,13 +15,15 @@ export const operatorInboxHtml = `<!doctype html>
   --bad: #a7352f;
   --warn: #9a6513;
   --ok: #178468;
+  --surface: #ffffff;
+  --shadow: 0 12px 30px rgba(8, 35, 53, .07);
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
-  background: var(--pale);
+  background: #edf2f5;
   color: var(--ink);
   font:
     14px/1.45 Inter,
@@ -42,11 +44,17 @@ button {
 }
 .btn {
   border: 1px solid transparent;
-  padding: 9px 12px;
+  border-radius: 8px;
+  padding: 10px 14px;
   background: var(--blue);
   color: #fff;
   font-size: 12px;
   font-weight: 800;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(21, 116, 223, .18);
 }
 .btn.alt {
   border-color: #cbd6dd;
@@ -121,13 +129,13 @@ button {
 .app {
   display: grid;
   min-height: 100vh;
-  grid-template-columns: 220px 350px minmax(0, 1fr);
+  grid-template-columns: 208px 344px minmax(560px, 1fr);
 }
 .rail {
   display: flex;
   flex-direction: column;
-  padding: 22px 12px;
-  background: var(--navy);
+  padding: 24px 14px;
+  background: linear-gradient(180deg, #071f31 0%, #0b2e46 100%);
   color: #fff;
 }
 .rail-brand {
@@ -157,16 +165,16 @@ button {
   margin-top: 34px;
 }
 .nav button {
-  border: 0;
-  border-left: 3px solid transparent;
-  padding: 12px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 12px 13px;
   background: transparent;
   color: #d8e6ed;
   text-align: left;
   font-weight: 750;
 }
 .nav button.active {
-  border-left-color: #7ebcff;
+  border-color: #ffffff22;
   background: #ffffff15;
   color: #fff;
 }
@@ -195,12 +203,14 @@ button {
 }
 .queue {
   min-width: 0;
-  background: #fff;
+  background: #f8fafb;
   border-right: 1px solid var(--line);
 }
 .queue-head {
-  padding: 20px;
+  padding: 22px 18px 16px;
   border-bottom: 1px solid var(--line);
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(8,35,53,.05);
 }
 .queue-head h1 {
   margin: 3px 0 0;
@@ -214,8 +224,9 @@ button {
 .tabs button {
   flex: 1;
   border: 1px solid var(--line);
-  padding: 8px 4px;
-  background: #fff;
+  border-radius: 9px;
+  padding: 9px 4px;
+  background: #f8fafb;
   color: #506575;
   font-size: 10px;
   font-weight: 800;
@@ -224,6 +235,7 @@ button {
   border-color: #bad8f4;
   background: #eef6fd;
   color: #0d5c9e;
+  box-shadow: inset 0 0 0 1px rgba(21,116,223,.08);
 }
 .tools {
   display: grid;
@@ -250,22 +262,72 @@ button {
   font-size: 12px;
 }
 .list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 12px;
   max-height: calc(100vh - 235px);
   margin: 0;
-  padding: 8px;
+  padding: 14px;
   overflow: auto;
-  list-style: none;
+}
+.board-column {
+  min-width: 0;
+  min-height: 170px;
+  border: 1px solid #dfe8ec;
+  border-radius: 12px;
+  background: #f4f7f9;
+  overflow: hidden;
+}
+.board-column:nth-child(1) { border-top: 3px solid #8064e8; }
+.board-column:nth-child(2) { border-top: 3px solid #16a6c9; }
+.board-column:nth-child(3) { border-top: 3px solid #efa43f; }
+.board-column .item { margin: 8px; }
+.board-column .item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(8, 34, 52, .12);
+}
+.board-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 13px;
+  border-bottom: 1px solid #e1e9ed;
+  color: #27475a;
+  font-size: 11px;
+  font-weight: 850;
+}
+.board-column-head span {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: #dceef8;
+  color: #126a84;
 }
 .item {
   border-left: 3px solid transparent;
-  padding: 12px;
+  margin: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 13px 12px;
   cursor: pointer;
+}
+.board-empty {
+  padding: 22px 12px;
+  color: #82939d;
+  font-size: 11px;
+  text-align: center;
+  margin: 10px;
+  border: 1px dashed #ccd8de;
+  border-radius: 10px;
+  background: rgba(255,255,255,.5);
 }
 .item:hover {
   background: #f5f8fa;
 }
 .item.active {
-  border-left-color: var(--blue);
+  border-color: #b9d9f3;
   background: #eaf3fb;
 }
 .item strong {
@@ -280,6 +342,9 @@ button {
   font-size: 11px;
 }
 .tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
   padding: 2px 5px;
   font-size: 10px;
   font-weight: 900;
@@ -299,12 +364,13 @@ button {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  background: #fff;
+  background: #f8fafb;
 }
 .overview {
-  padding: 17px 24px;
+  padding: 15px 26px;
   border-bottom: 1px solid var(--line);
-  background: #fbfcfd;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(8,35,53,.05);
 }
 .overview h1 {
   margin: 3px 0;
@@ -337,8 +403,10 @@ button {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 17px 24px;
+  padding: 19px 26px 15px;
   border-bottom: 1px solid var(--line);
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(8,35,53,.05);
 }
 .who {
   display: flex;
@@ -350,7 +418,8 @@ button {
   place-items: center;
   width: 39px;
   height: 39px;
-  background: #d9edf9;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #d9edf9, #c4e5f2);
   color: #15547c;
   font-weight: 850;
 }
@@ -363,6 +432,17 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+#state {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #edf7f2;
+  color: #16724f;
+  font-size: 11px;
+  font-weight: 800;
+}
 .actions {
   display: flex;
   gap: 7px;
@@ -372,9 +452,9 @@ button {
   display: flex;
   gap: 15px;
   overflow: auto;
-  padding: 10px 24px;
+  padding: 12px 26px;
   border-bottom: 1px solid var(--line);
-  background: #f8fafb;
+  background: #fff;
 }
 .context div {
   min-width: max-content;
@@ -391,26 +471,50 @@ button {
   display: block;
   font-size: 11px;
 }
+.context div {
+  padding-right: 14px;
+  border-right: 1px solid #e7edf0;
+}
 .thread {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   overflow: auto;
-  padding: 18px 24px;
-  background: #fbfcfd;
+  padding: 22px 30px;
+  background: #eef3f5;
 }
 .message {
+  align-self: flex-start;
   width: max-content;
   max-width: 78%;
-  margin: 7px 0;
-  padding: 9px 11px;
+  margin: 9px 0;
+  padding: 12px 14px;
   border: 1px solid #e0e8ed;
   border-radius: 3px 11px 11px 11px;
   background: #fff;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  box-shadow: 0 1px 2px #0823350b;
+}
+.message-author {
+  display: block;
+  margin-bottom: 5px;
+  color: #477898;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.message.out .message-author {
+  color: #16724f;
 }
 .message.out {
-  margin-left: auto;
+  align-self: flex-end;
+  margin-left: 22%;
   border-color: #cbe6da;
   border-radius: 11px 3px 11px 11px;
-  background: #e4f4ec;
+  background: #dff5e9;
+  border-color: #b8e2cc;
 }
 .message small {
   display: block;
@@ -421,7 +525,9 @@ button {
 .composer {
   display: flex;
   gap: 8px;
-  padding: 14px 24px;
+  padding: 14px 26px 18px;
+  background: #fff;
+  box-shadow: 0 -4px 18px rgba(8,35,53,.05);
   border-top: 1px solid var(--line);
 }
 .composer textarea {
@@ -559,6 +665,9 @@ button {
   .crm-layout {
     grid-template-columns: 1fr;
   }
+  .list {
+    grid-template-columns: 1fr;
+  }
 }
 @media (max-width: 680px) {
   .app {
@@ -678,8 +787,7 @@ button {
 <button id="alerts" type="button" class="btn alt">Ativar som</button>
 </div>
 </div>
-<ul id="list" class="list">
-</ul>
+<div id="list" class="list"></div>
 </aside>
 <main id="queueView" class="workspace">
 <section class="overview">
@@ -765,8 +873,9 @@ let items = [],
   alertsEnabled = false,
   lastInboxCheckAt = Date.now(),
   knownUpdates = new Map(),
-  eventController = null;
-const roles = ["admin", "coordination", "commercial"];
+  eventController = null,
+  loadTimer = null;
+const roles = ["admin", "coordination", "commercial", "technical", "on_call"];
 const auth = () => ({
   Authorization: "Bearer " + sessionStorage.getItem("operatorToken"),
 });
@@ -911,8 +1020,17 @@ function renderQueue() {
   document.getElementById("count").textContent = "(" + rows.length + ")";
   const list = document.getElementById("list");
   list.innerHTML = "";
-  rows.forEach((c) => {
-    const e = document.createElement("li");
+  const groups = [
+    { key: "new", title: "Novos", items: rows.filter((c) => !c.assignedOperator && !due(c)) },
+    { key: "mine", title: "Em atendimento", items: rows.filter((c) => Boolean(c.assignedOperator) && !due(c)) },
+    { key: "due", title: "Retorno / atenção", items: rows.filter((c) => due(c)) },
+  ];
+  groups.forEach((group) => {
+    const column = document.createElement("section");
+    column.className = "board-column";
+    column.innerHTML = '<div class="board-column-head"><span>' + group.items.length + '</span><strong>' + group.title + '</strong></div>';
+    group.items.forEach((c) => {
+    const e = document.createElement("article");
     e.className = "item" + (selected?.id === c.id ? " active" : "");
     const p = c.suggestedPriority
       ? '<span class="tag ' +
@@ -930,11 +1048,15 @@ function renderQueue() {
       (due(c) ? '<span class="tag due">Retorno agora</span>' : "") +
       '</div><div class="meta">' +
       esc(c.destinationArea || c.route || "Atendimento") +
+      (c.protocolId ? " · " + esc(c.protocolId) : "") +
       " · há " +
       age(c.updatedAt) +
       "</div>";
     e.onclick = () => open(c.id);
-    list.append(e);
+    column.append(e);
+  });
+    if (!group.items.length) column.insertAdjacentHTML("beforeend", '<div class="board-empty">Nenhum atendimento nesta etapa</div>');
+    list.append(column);
   });
 }
 async function load() {
@@ -962,10 +1084,13 @@ async function connectLiveUpdates() {
       const chunk = await reader.read();
       if (chunk.done) throw Error("Canal em tempo real encerrado");
       buffer += decoder.decode(chunk.value, { stream: true });
-      const events = buffer.split("\\n\\n");
+      const events = buffer.split("\\\\n\\\\n");
       buffer = events.pop();
       events.forEach((event) => {
-        if (event.includes("event: inbox")) load().catch(() => {});
+        if (event.includes("event: inbox")) {
+          clearTimeout(loadTimer);
+          loadTimer = setTimeout(() => load().catch(() => {}), 150);
+        }
       });
     }
   } catch (_) {
@@ -974,10 +1099,24 @@ async function connectLiveUpdates() {
   }
 }
 function humanMessage(content) {
-  const m = String(content || "").match(/^([^:]{2,80}):\s([\s\S]*)$/);
+  const m = String(content || "").match(/^([^:]{2,80}):\\s([\\s\\S]*)$/);
   return m
     ? "<strong>" + esc(m[1]) + ":</strong> " + esc(m[2])
     : esc(content || "[mensagem sem texto]");
+}
+function messageAuthor(message) {
+  if (!isOutboundMessage(message)) return "Cliente";
+  const operator = sessionStorage.getItem("operatorName");
+  return operator && String(message.content || "").startsWith(operator + ":")
+    ? "Você"
+    : "Bot Life";
+}
+function isOutboundMessage(message) {
+  const direction = String(message.direction || "").toLowerCase();
+  const content = String(message.content || "");
+  const operator = sessionStorage.getItem("operatorName");
+  return ["outbound", "out", "sent", "bot", "operator"].includes(direction) ||
+    Boolean((operator && content.startsWith(operator + ":")) || /^[^:\\n]{2,80}:\\s/.test(content));
 }
 async function open(id) {
   selected = await api("/api/operator/conversations/" + id);
@@ -1031,12 +1170,12 @@ async function open(id) {
     .map(
       (m) =>
         '<div class="message ' +
-        (m.direction === "outbound" ? "out" : "") +
+        (isOutboundMessage(m) ? "out" : "") +
         ">" +
-        humanMessage(m.content) +
+        '<span class="message-author">' + messageAuthor(m) + '</span>' + humanMessage(m.content) +
         "<small>" +
         fmt(m.receivedAt) +
-        (m.direction === "outbound" ? " · Atendimento Life" : " · Cliente") +
+        (isOutboundMessage(m) ? " · Life Engenharia" : " · Cliente") +
         "</small></div>",
     )
     .join("");
@@ -1268,7 +1407,10 @@ document.getElementById("claim").onclick = async () => {
 document.getElementById("more").onclick = () =>
   modal(
     "Mais ações",
-    '<label class="field">Ação<select name="action"><option value="note">Adicionar nota interna</option><option value="followup">Agendar retorno</option><option value="release">Devolver à fila</option><option value="close">Encerrar atendimento</option></select></label><label class="field">Detalhe / resolução<textarea name="text" maxlength="2000" placeholder="Obrigatório para nota e encerramento"></textarea></label><label class="field">Retorno<input name="followUpAt" type="datetime-local"></label>',
+    '<label class="field">Ação<select name="action"><option value="note">Adicionar nota interna</option><option value="followup">Agendar retorno</option>' +
+      (selected.destinationArea === "commercial" ? '<option value="syncPloomes">Incluir automaticamente no Ploomes</option><option value="manualPloomes">Confirmar inclusão manual no Ploomes</option>' : '') +
+      (["technical", "on_call"].includes(selected.destinationArea) ? '<option value="manualOs">Confirmar abertura manual da OS</option>' : '') +
+      '<option value="release">Devolver à fila</option><option value="close">Encerrar atendimento</option></select></label><label class="field">Detalhe / resolução<textarea name="text" maxlength="2000" placeholder="Nota, resolução ou número da OS/Ploomes"></textarea></label><label class="field">Retorno<input name="followUpAt" type="datetime-local"></label>',
     async (f) => {
       const a = f.get("action"),
         t = f.get("text").trim();
@@ -1293,6 +1435,25 @@ document.getElementById("more").onclick = () =>
         await api("/api/operator/conversations/" + selected.id + "/release", {
           method: "POST",
         });
+      if (a === "manualPloomes") {
+        if (!t) throw Error("Informe o ID da oportunidade criada no Ploomes.");
+        await api("/api/operator/conversations/" + selected.id + "/commercial/manual-ploomes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ploomesId: t }),
+        });
+      }
+      if (a === "syncPloomes") {
+        await api("/api/operator/conversations/" + selected.id + "/commercial/sync-ploomes", { method: "POST" });
+      }
+      if (a === "manualOs") {
+        if (!t) throw Error("Informe o número da OS aberta.");
+        await api("/api/operator/conversations/" + selected.id + "/technical/manual-service-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ serviceOrderNumber: t }),
+        });
+      }
       if (a === "close") {
         if (t.length < 3) throw Error("Registre a resolução do atendimento.");
         await api("/api/operator/conversations/" + selected.id + "/close", {

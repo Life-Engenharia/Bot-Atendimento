@@ -13,6 +13,7 @@ export type IncomingMessage = {
   id: string;
   from: string;
   text?: string;
+  interactiveId?: string;
   media?: IncomingMedia[];
 };
 
@@ -44,7 +45,12 @@ export class WebhookProcessor {
       this.auditLog.append({
         event: 'webhook.message_received',
         actor: 'meta',
-        payload: { messageId: message.id, from: message.from, hasText: Boolean(message.text), mediaCount: message.media?.length ?? 0 },
+        payload: {
+          messageId: message.id,
+          from: message.from,
+          hasText: Boolean(message.text),
+          mediaCount: message.media?.length ?? 0,
+        },
       });
     }
 

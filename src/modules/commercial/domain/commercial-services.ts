@@ -17,5 +17,21 @@ export function commercialServiceMenu(): string {
 }
 
 export function commercialServiceByOption(value: string): string | undefined {
-  return commercialServices[Number(value) - 1];
+  const input = value.trim().replace(/^\s*(?:opção|opcao)\s*/i, '');
+  const numeric = input.match(/^([0-9]{1,2})(?:\s*[.)-]|\s|$)/);
+  const option = numeric ? Number(numeric[1]) : Number.NaN;
+  if (Number.isInteger(option) && option >= 1 && option <= commercialServices.length)
+    return commercialServices[option - 1];
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLocaleLowerCase('pt-BR');
+  return commercialServices.find((service) => {
+    const name = service
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('pt-BR');
+    return name === normalized || name.startsWith(normalized) || normalized.startsWith(name);
+  });
 }

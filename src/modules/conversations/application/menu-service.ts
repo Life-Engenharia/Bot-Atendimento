@@ -36,7 +36,7 @@ const humanMessage =
 export class MenuService {
   private readonly conversations = new Map<string, MenuConversation>();
 
-  constructor(private readonly auditLog: InMemoryAuditLog) { }
+  constructor(private readonly auditLog: InMemoryAuditLog) {}
 
   handle(phone: string, incomingText?: string): MenuResponse {
     const existing = this.conversations.get(phone);
@@ -120,7 +120,7 @@ export class MenuService {
       if (!service)
         return this.response(
           existing,
-          'Escolha uma opção de 1 a 10 para informar o serviço desejado.',
+        'Não reconheci esse serviço. Escolha um item da lista, envie o número de 1 a 10 ou digite o nome do serviço (por exemplo: Projetos).',
         );
       existing.state = 'COMMERCIAL_COLLECTING';
       existing.selectedService = service;

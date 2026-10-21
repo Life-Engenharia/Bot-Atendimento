@@ -5,8 +5,6 @@
  * bot. Não depende de Prompt Objects publicados no painel da OpenAI.
  */
 
-
-
 /** Guard Rails PROMPT */
 export const TRIAGE_PROMPT_VERSION = '2026-10-09';
 
