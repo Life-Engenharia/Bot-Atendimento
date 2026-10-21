@@ -146,6 +146,19 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
     await sendOperationalAlertEmail(result.created, supabaseStore, store, environment);
     return result;
   });
+  app.get('/api/admin/jobs/webhooks/failed', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    return supabaseStore.listFailedWebhookJobs();
+  });
+  app.post<{ Params: { id: string } }>('/api/admin/jobs/webhooks/:id/retry', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+    const retried = await supabaseStore.retryFailedWebhookJob(request.params.id, 'admin-dashboard');
+    return retried ? reply.code(204).send() : reply.code(404).send({ error: 'Evento falho não encontrado.' });
+  });
   app.get('/api/admin/alerts', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });

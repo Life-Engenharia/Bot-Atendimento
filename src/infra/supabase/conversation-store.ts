@@ -355,6 +355,40 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       });
   }
 
+  async listFailedWebhookJobs(): Promise<
+    Array<{ id: string; metaMessageId: string; attempts: number; lastError: string | null; createdAt: string }>
+  > {
+    const rows = await this.request<
+      Array<{ id: string; meta_message_id: string; attempts: number; last_error: string | null; created_at: string }>
+    >(
+      'webhook_jobs?status=eq.failed&select=id,meta_message_id,attempts,last_error,created_at&order=created_at.desc&limit=100',
+      {},
+      [200],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      metaMessageId: row.meta_message_id,
+      attempts: row.attempts,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async retryFailedWebhookJob(id: string, actor: string): Promise<boolean> {
+    const rows = await this.request<Array<{ id: string }>>(
+      `webhook_jobs?id=eq.${encodeURIComponent(id)}&status=eq.failed`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ status: 'queued', attempts: 0, available_at: new Date().toISOString(), last_error: null }),
+      },
+      [200],
+    );
+    if (!rows.length) return false;
+    await this.audit('webhook.job_requeued', actor, { jobId: id });
+    return true;
+  }
+
   async saveMediaAttachment(
     conversation: StoredConversation,
     media: IncomingMedia,
