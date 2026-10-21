@@ -22,11 +22,19 @@ export function commercialServiceByOption(value: string): string | undefined {
   const option = numeric ? Number(numeric[1]) : Number.NaN;
   if (Number.isInteger(option) && option >= 1 && option <= commercialServices.length)
     return commercialServices[option - 1];
-  const normalized = value
+  let normalized = value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLocaleLowerCase('pt-BR');
+  for (let index = 0; index < 3; index += 1) {
+    normalized = normalized
+      .replace(/^(?:eu quero|quero contratar|quero|preciso de|preciso|gostaria de|tenho interesse em|solicito|contratar|orcamento de|servico de)\s+/, '')
+      .replace(/\s+(?:por favor|obrigado|obrigada)\.?$/, '')
+      .trim();
+  }
+  if (/assistencia.*avulsa/.test(normalized)) return 'Assistência avulsa';
+  if (normalized.length < 3) return undefined;
   return commercialServices.find((service) => {
     const name = service
       .normalize('NFD')

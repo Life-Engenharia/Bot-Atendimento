@@ -87,6 +87,7 @@ export class PersistedMenuService {
         message.from,
         message.text,
       );
+      if (administrativeResponse) await this.store.markInboundProcessed(message.id);
       responses.push(
         administrativeResponse ??
           (accepted.surveyResponse === 'resolved'
@@ -112,6 +113,7 @@ export class PersistedMenuService {
       conversation,
       message.from,
       'Seu atendimento foi reaberto e voltou para a fila da equipe Life. Se puder, envie uma atualização breve sobre o que ainda precisa de ajuda.',
+      message.id,
     );
   }
 
@@ -127,6 +129,7 @@ export class PersistedMenuService {
       conversation,
       message.from,
       'Obrigado pela confirmação. Ficamos à disposição sempre que precisar.',
+      message.id,
     );
   }
 
@@ -163,6 +166,12 @@ export class PersistedMenuService {
       tech_edit_impact: 'editar impacto',
       tech_edit_contingency: 'editar contingência',
       tech_edit_risk: 'editar risco',
+      tech_edit_more: 'editar outros dados',
+      tech_edit_frequency: 'editar frequência',
+      tech_edit_contract: 'editar contrato',
+      tech_edit_model: 'editar modelo',
+      tech_edit_asset: 'editar patrimônio',
+      tech_edit_alarm: 'editar alarme',
     };
     const input = (interactionText[message.interactiveId ?? ''] ?? message.text ?? '').trim();
     const text = normalize(input);
@@ -201,6 +210,7 @@ export class PersistedMenuService {
         conversation,
         message.from,
         `Status do atendimento: ${stateLabel[conversation.state] ?? 'em andamento'}.`,
+        message.id,
       );
     }
     if (text === 'cancelar' || text === 'cancelamento') {
@@ -212,14 +222,26 @@ export class PersistedMenuService {
         conversation,
         message.from,
         'Tudo bem. O atendimento foi cancelado. Quando precisar, envie uma nova mensagem para iniciar outro atendimento.',
+        message.id,
       );
     }
     if (['reiniciar', 'recomeçar', 'recomecar', 'menu', 'início', 'inicio'].includes(text)) {
+      if (
+        conversation.state === 'queued' ||
+        conversation.state === 'human' ||
+        Boolean(conversation.assignedOperator)
+      ) {
+        return this.finish(
+          conversation,
+          message.from,
+          'Este atendimento já está com a equipe Life e não pode ser reiniciado por aqui. Envie REABRIR se o atendimento já foi concluído, ou continue nesta conversa para falar com a equipe.',
+          message.id,
+        );
+      }
       conversation.state = 'consent';
       conversation.route = null;
       conversation.context = {};
-      conversation.context.initialIntent = undefined;
-      return this.finish(conversation, message.from, consentMessage);
+      return this.finish(conversation, message.from, consentMessage, message.id);
     }
     let responseText: string;
     if (conversation.state === 'consent') {
@@ -245,11 +267,6 @@ export class PersistedMenuService {
               : 'Pelo que você descreveu, parece que busca um serviço ou orçamento. Posso seguir por esse caminho? Responda SIM para continuar ou escolha outra opção abaixo.\n\n1. Orçamento ou serviço\n2. Assistência técnica\n3. Falar com uma pessoa';
         } else responseText = routeMenu;
         await this.store.audit('menu.consent_accepted', 'customer', { phone: message.from });
-      } else if (isHuman(text) || text === '2') {
-        conversation.state = 'human';
-        conversation.route = 'human';
-        responseText = humanMessage;
-        await this.store.recordHandoff(conversation, 'customer_requested', 'customer');
       } else {
         conversation.context.initialIntent = input;
         const equipment = identifyEquipment(input);
@@ -343,10 +360,24 @@ export class PersistedMenuService {
       const editing = conversation.context.editingTechnicalField as
         TechnicalContextField | undefined;
       if (conversation.context.selectingTechnicalEditField) {
-        const field = technicalFieldFromLabel(text.slice(7));
-        if (!field) responseText = 'Escolha o dado que deseja corrigir na lista acima.';
-        else {
+        if (text === 'editar outros dados' || text === 'mais dados técnicos') {
           delete conversation.context.selectingTechnicalEditField;
+          conversation.context.selectingTechnicalEditMore = true;
+          responseText = 'Escolha qual informação técnica deseja corrigir.';
+        } else {
+          const field = technicalFieldFromLabel(text.replace(/^editar\s+/, ''));
+          if (!field) responseText = 'Escolha o dado que deseja corrigir na lista acima.';
+          else {
+            delete conversation.context.selectingTechnicalEditField;
+            conversation.context.editingTechnicalField = field;
+            responseText = technicalQuestion(field, conversation);
+          }
+        }
+      } else if (conversation.context.selectingTechnicalEditMore) {
+        const field = technicalFieldFromLabel(text.replace(/^editar\s+/, ''));
+        if (!field) responseText = 'Escolha um dos dados técnicos listados.';
+        else {
+          delete conversation.context.selectingTechnicalEditMore;
           conversation.context.editingTechnicalField = field;
           responseText = technicalQuestion(field, conversation);
         }
@@ -363,6 +394,17 @@ export class PersistedMenuService {
         const nextField = editing ?? nextTechnicalField(conversation);
         if (!nextField) throw new Error('Não há campo técnico pendente.');
         if (!input) responseText = technicalQuestion(nextField, conversation);
+        else if (nextField === 'operationalImpact' && !normalizeOperationalImpact(input))
+          responseText =
+            'Para definir a prioridade, responda: TOTALMENTE PARADO, PARCIALMENTE OPERANTE, FUNCIONANDO ou NÃO SEI.';
+        else if (
+          (nextField === 'contingency' || nextField === 'reportedRisk') &&
+          !normalizeYesNoUnknown(input)
+        )
+          responseText =
+            nextField === 'contingency'
+              ? 'Existe equipamento alternativo ou plano de contingência? Responda SIM, NÃO ou NÃO SEI.'
+              : 'Há risco para pessoas ou uma operação essencial? Responda SIM, NÃO ou NÃO SEI.';
         else {
           if (
             nextField === 'operationalImpact' &&
@@ -372,7 +414,7 @@ export class PersistedMenuService {
             responseText =
               'Só para confirmar a urgência: você informou que o equipamento “apagou de vez”, mas agora mencionou operação parcial. Ele está TOTALMENTE PARADO, PARCIALMENTE OPERANTE ou já voltou a FUNCIONAR?';
           } else {
-            conversation.context[nextField] = input;
+            conversation.context[nextField] = canonicalTechnicalAnswer(nextField, input);
             delete conversation.context.editingTechnicalField;
             if (nextField === 'contractReference' && hasNoLifeHistory(input)) {
               conversation.route = 'commercial';
@@ -402,7 +444,7 @@ export class PersistedMenuService {
     } else if (conversation.state === 'collecting' && conversation.route === 'commercial') {
       const editing = conversation.context.editingField as CommercialContextField | undefined;
       if (conversation.context.selectingEditField) {
-        const field = commercialFieldFromLabel(text.slice(7));
+        const field = commercialFieldFromLabel(stripEditPrefix(text));
         if (!field) responseText = 'Escolha o dado que deseja corrigir na lista acima.';
         else {
           delete conversation.context.selectingEditField;
@@ -421,7 +463,7 @@ export class PersistedMenuService {
             !isValidCnpjOrCpf(value)
           ) {
             responseText =
-              'Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos. Se não souber, responda “não sei” para continuar e deixar essa informação pendente.';
+              'Informe um CPF válido com 11 dígitos ou CNPJ válido com 14 caracteres (as primeiras 12 posições podem conter letras ou números). Se não souber, responda “não sei” para continuar e deixar essa informação pendente.';
           } else if (
             nextField === 'email' &&
             value.toLocaleLowerCase('pt-BR') !== 'pular' &&
@@ -434,9 +476,11 @@ export class PersistedMenuService {
               'Informe o telefone com DDD, somente números ou no formato +55 79 99999-9999.';
           } else {
             conversation.context[nextField] =
-              isOptionalDocumentAnswer(value)
-                ? 'pendente de confirmação'
-                : value;
+              nextField === 'email' && normalize(value) === 'pular'
+                ? 'não informado'
+                : nextField === 'cnpj' && isOptionalDocumentAnswer(value)
+                  ? 'pendente de confirmação'
+                  : value;
             delete conversation.context.editingField;
             const followingField = nextCommercialField(conversation);
             if (followingField) responseText = commercialQuestion(followingField);
@@ -452,16 +496,16 @@ export class PersistedMenuService {
       }
     } else if (conversation.state === 'review' && conversation.route === 'commercial') {
       if (text === 'confirmar' || text === 'sim') {
-        const reference = await this.store.createCommercialProtocol(conversation);
+        const reference = await this.store.createCommercialProtocol(conversation, message.id);
         conversation.state = 'queued';
         void this.operationalNotifier?.commercial(reference, conversation).catch(() => undefined);
         responseText = `Solicitação confirmada. Seu protocolo é ${reference}. A equipe comercial seguirá com você por aqui.${(await this.isOutsideBusinessHours('commercial')) ? ' Recebemos sua solicitação fora do horário comercial e ela será direcionada no próximo período de atendimento.' : ''}`;
-      } else if (text === 'editar') {
+      } else if (isBroadEditRequest(text)) {
         conversation.state = 'collecting';
         conversation.context.selectingEditField = true;
         responseText = 'Qual dado deseja corrigir? Escolha uma opção abaixo.';
-      } else if (text.startsWith('editar ')) {
-        const field = commercialFieldFromLabel(text.slice(7));
+      } else if (isEditRequest(text)) {
+        const field = commercialFieldFromLabel(stripEditPrefix(text));
         if (!field)
           responseText =
             'Você pode editar: local, nome, empresa, cnpj, telefone, e-mail, prazo ou necessidade.';
@@ -481,6 +525,7 @@ export class PersistedMenuService {
           conversation,
           priority.level,
           priority.reason,
+          message.id,
         );
         conversation.state = 'queued';
         void this.operationalNotifier
@@ -493,12 +538,12 @@ export class PersistedMenuService {
           priority: priority.level,
           reason: priority.reason,
         });
-      } else if (text === 'editar') {
+      } else if (isBroadEditRequest(text)) {
         conversation.state = 'collecting';
         conversation.context.selectingTechnicalEditField = true;
         responseText = 'Qual dado da pré-triagem deseja corrigir? Escolha uma opção abaixo.';
-      } else if (text.startsWith('editar ')) {
-        const field = technicalFieldFromLabel(text.slice(7));
+      } else if (isEditRequest(text)) {
+        const field = technicalFieldFromLabel(stripEditPrefix(text));
         if (!field)
           responseText =
             'Você pode corrigir: nome, local, equipamento, problema, impacto, contingência ou risco.';
@@ -508,8 +553,10 @@ export class PersistedMenuService {
           responseText = technicalQuestion(field, conversation);
         }
       } else {
+        conversation.state = 'collecting';
+        conversation.context.selectingTechnicalEditField = true;
         responseText =
-          'Revise os dados acima. Responda CONFIRMAR para registrar a pré-triagem ou descreva o dado que precisa corrigir para ser encaminhado à equipe.';
+          'Não identifiquei qual campo deseja corrigir. Escolha o dado na lista abaixo ou envie “editar nome do campo”.';
       }
     } else if (conversation.state === 'human') {
       // Atendimento humano ativo: não envie respostas automáticas que concorram com o operador.
@@ -528,7 +575,7 @@ export class PersistedMenuService {
     if (message.media?.length && conversation.state !== 'consent')
       responseText = `Recebi ${describeMedia(message.media)} e anexei ao seu atendimento. ${responseText}`;
     responseText = await this.refineSupportReply(conversation, message.text, responseText);
-    await this.store.saveConversation(conversation);
+    await this.store.saveConversationAndMarkInbound(conversation, message.id);
     await this.deliverOutbound(conversation, message.from, responseText);
     return { to: message.from, state: menuState(conversation), text: responseText };
   }
@@ -537,8 +584,9 @@ export class PersistedMenuService {
     conversation: StoredConversation,
     to: string,
     text: string,
+    inboundMessageId: string,
   ): Promise<MenuResponse> {
-    await this.store.saveConversation(conversation);
+    await this.store.saveConversationAndMarkInbound(conversation, inboundMessageId);
     await this.deliverOutbound(conversation, to, text);
     return { to, state: menuState(conversation), text };
   }
@@ -571,20 +619,9 @@ export class PersistedMenuService {
           : buttons && this.outboundSender!.sendButtons
             ? this.outboundSender!.sendButtons(to, text, buttons)
             : this.outboundSender!.sendText(to, text);
-      let result;
-      try {
-        result = await send();
-      } catch (firstError) {
-        // Falhas transitórias de rede/Meta não devem encerrar o turno do bot.
-        // Uma segunda tentativa curta evita que o cliente fique sem a próxima
-        // pergunta quando a primeira chamada perde a conexão.
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        try {
-          result = await send();
-        } catch {
-          throw firstError;
-        }
-      }
+      // Não repetir uma chamada de resultado ambíguo: a Meta pode ter aceitado
+      // a mensagem antes de a conexão cair, e a repetição duplica a resposta.
+      const result = await send();
       await this.store.saveOutbound(conversation.id, text, {
         messageId: result.messageId,
         status: 'sent',
@@ -744,31 +781,111 @@ function suggestTechnicalPriority(conversation: StoredConversation): {
   reason: string;
 } {
   const context = conversation.context;
-  const value =
-    `${context.operationalImpact} ${context.contingency} ${context.reportedRisk} ${context.symptom}`.toLocaleLowerCase(
-      'pt-BR',
-    );
-  const criticalRisk = /(risco|pessoas|sangue|medicamento|essencial|vida)/.test(value);
-  const stopped = /(parad|totalmente|inoperante|apagou|desligou|não liga|nao liga)/.test(value);
-  const noBackup = /(sem conting|não.*alternativ|nao.*alternativ|nenhum)/.test(value);
+  const impact = normalize(context.operationalImpact);
+  const contingency = normalize(context.contingency);
+  const risk = normalize(context.reportedRisk);
+  const symptom = normalize(context.symptom);
+  const frequency = normalize(context.startedFrequency);
+  const alarm = normalize(context.alarm);
+  const criticalRisk = indicatesRisk(risk);
+  const uncertainty = [risk, impact, contingency].some((value) =>
+    /^(não sei|nao sei|não informado|nao informado|desconheço|desconheco)$/.test(value),
+  );
+  const stopped = indicatesStoppedEquipment(impact, symptom);
+  const noBackup = indicatesNoContingency(contingency);
   if (criticalRisk && stopped && noBackup)
     return {
       level: 'P1',
       reason: 'Risco crítico informado, equipamento parado e sem contingência.',
     };
+  if (uncertainty)
+    return {
+      level: 'P2',
+      reason: 'Impacto, risco ou contingência não confirmado; requer validação humana prioritária.',
+    };
   if (
     stopped ||
     (criticalRisk && noBackup) ||
-    /(falha relevante|contingência limitada|contingencia limitada)/.test(value)
+    /(falha relevante|contingência limitada|contingencia limitada)/.test(
+      `${impact} ${contingency} ${symptom}`,
+    )
   )
     return {
       level: 'P2',
       reason:
         'Parada, risco relevante ou contingência insuficiente; requer retorno humano prioritário.',
     };
-  if (/(parcial|reduz|intermitente|alarme)/.test(value))
+  if (
+    /(parcial|reduz|intermitente)/.test(`${impact} ${symptom} ${frequency}`) ||
+    (Boolean(alarm) && !/^(não informado|nao informado|não sei|nao sei)$/.test(alarm))
+  )
     return { level: 'P3', reason: 'Falha parcial ou desempenho reduzido informado.' };
   return { level: 'P4', reason: 'Demanda sem interrupção crítica identificada na pré-triagem.' };
+}
+
+function normalizeYesNoUnknown(value: string): 'sim' | 'não' | 'não sei' | undefined {
+  const input = normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/^(nao sei|nao informado|desconheco|incerto|incerta)$/.test(input)) return 'não sei';
+  if (/^(nao|n|negativo|sem risco|nenhum|nao ha|nao existe)(\b|\s|$)/.test(input)) return 'não';
+  if (/^(sim|s|ha|existe|tem|possui|positivo)(\b|\s|$)/.test(input)) return 'sim';
+  return undefined;
+}
+
+function normalizeOperationalImpact(
+  value: string,
+): 'totalmente parado' | 'parcialmente operante' | 'funcionando' | 'não sei' | undefined {
+  const input = normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/^(nao sei|nao informado|desconheco)$/.test(input)) return 'não sei';
+  if (/(totalmente parado|parou totalmente|parado|inoperante|nao liga|apagou|desligou)/.test(input))
+    return 'totalmente parado';
+  if (/(parcial|intermitente|reduzid|funcionando parcialmente)/.test(input))
+    return 'parcialmente operante';
+  if (/(funcionando|operante|normal|voltou)/.test(input)) return 'funcionando';
+  return undefined;
+}
+
+function canonicalTechnicalAnswer(field: TechnicalContextField, value: string): string {
+  if (field === 'operationalImpact') return normalizeOperationalImpact(value) ?? value;
+  if (field === 'contingency' || field === 'reportedRisk')
+    return normalizeYesNoUnknown(value) ?? value;
+  return value;
+}
+
+function indicatesRisk(value: string): boolean {
+  if (
+    !value ||
+    /^(não|nao|não há|nao ha|sem risco|nenhum risco|não informado|nao informado)/.test(value)
+  )
+    return false;
+  return (
+    /^(sim|há risco|ha risco|existe risco|risco informado)/.test(value) ||
+    /(risco para|risco a |risco de|pessoas|sangue|medicamento|essencial|vida)/.test(value)
+  );
+}
+
+function indicatesStoppedEquipment(impact: string, symptom: string): boolean {
+  if (/(não|nao) (está |esta )?(totalmente )?parado/.test(impact)) return false;
+  if (/(funcionando|operante|parcial)/.test(impact)) return false;
+  if (/(totalmente parado|parado|inoperante|não liga|nao liga|apagou|desligou)/.test(impact))
+    return true;
+  return /(apagou de vez|parou totalmente|totalmente parado|inoperante|não liga|nao liga)/.test(
+    symptom,
+  );
+}
+
+function indicatesNoContingency(value: string): boolean {
+  if (
+    !value ||
+    /^(não sei|nao sei|não informado|nao informado|desconheço|desconheco)/.test(value) ||
+    /^(sim|há|ha|existe|tem )/.test(value)
+  )
+    return false;
+  return (
+    /^(não|nao|não há|nao ha|sem|nenhum|inexistente)/.test(value) ||
+    /(sem conting|não.*alternativ|nao.*alternativ|nenhum equipamento|não existe|nao existe)/.test(
+      value,
+    )
+  );
 }
 
 function nextCommercialField(conversation: StoredConversation): CommercialContextField | undefined {
@@ -850,6 +967,15 @@ function menuState(conversation: StoredConversation): MenuResponse['state'] {
 function normalize(value?: string): string {
   return (value ?? '').trim().toLocaleLowerCase('pt-BR');
 }
+function isEditRequest(value: string): boolean {
+  return /^(editar|corrigir|alterar)\s+/.test(value);
+}
+function isBroadEditRequest(value: string): boolean {
+  return /^(editar|corrigir|alterar)( dados| os dados| as informações| as informacoes)?$/.test(value);
+}
+function stripEditPrefix(value: string): string {
+  return value.replace(/^(?:editar|corrigir|alterar)(?:\s+dados)?\s+/, '').trim();
+}
 function isConsent(value: string): boolean {
   return value === '1' || value === 'sim' || value === 'sim, continuar' || value === 'continuar';
 }
@@ -917,10 +1043,31 @@ function isValidPhone(value: string): boolean {
   return digits.length >= 10 && digits.length <= 15;
 }
 
-function isValidCnpjOrCpf(value: string): boolean {
-  const digits = value.replace(/\D/g, '');
-  if (digits.length !== 11 && digits.length !== 14) return false;
-  return !/^(\d)\1+$/.test(digits);
+export function isValidCnpjOrCpf(value: string): boolean {
+  const document = value.toLocaleUpperCase('pt-BR').replace(/[.\-/\s]/g, '');
+  if (/^\d{11}$/.test(document)) {
+    if (/^(\d)\1+$/.test(document)) return false;
+    const digit = (base: string, weights: number[]) => {
+      const remainder = [...base].reduce((sum, char, index) => sum + Number(char) * weights[index], 0) % 11;
+      return remainder < 2 ? 0 : 11 - remainder;
+    };
+    const first = digit(document.slice(0, 9), [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const second = digit(`${document.slice(0, 9)}${first}`, [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return document.endsWith(`${first}${second}`);
+  }
+  if (!/^[A-Z0-9]{12}\d{2}$/.test(document) || /^(.)\1+$/.test(document)) return false;
+  const checkDigit = (base: string, weights: number[]) => {
+    const remainder = [...base].reduce(
+      (sum, char, index) => sum + (char.charCodeAt(0) - 48) * weights[index],
+      0,
+    ) % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+  const first = checkDigit(document.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const second = checkDigit(`${document.slice(0, 12)}${first}`, [
+    6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2,
+  ]);
+  return document.endsWith(`${first}${second}`);
 }
 
 function interactiveButtons(
@@ -1000,16 +1147,25 @@ function interactiveServiceList(
       { id: 'edit_timeline', title: 'Prazo' },
       { id: 'edit_need', title: 'Necessidade' },
     ];
+  if (conversation.route === 'technical' && conversation.context.selectingTechnicalEditMore)
+    return [
+      { id: 'tech_edit_frequency', title: 'Frequência / início' },
+      { id: 'tech_edit_impact', title: 'Impacto operacional' },
+      { id: 'tech_edit_contingency', title: 'Contingência' },
+      { id: 'tech_edit_risk', title: 'Risco informado' },
+    ];
   if (conversation.route === 'technical' && conversation.context.selectingTechnicalEditField)
     return [
       { id: 'tech_edit_contact', title: 'Nome do contato' },
       { id: 'tech_edit_company', title: 'Empresa' },
       { id: 'tech_edit_location', title: 'Local / unidade' },
+      { id: 'tech_edit_contract', title: 'Contrato / histórico' },
       { id: 'tech_edit_equipment', title: 'Equipamento' },
+      { id: 'tech_edit_model', title: 'Fabricante / modelo' },
+      { id: 'tech_edit_asset', title: 'Patrimônio / série' },
       { id: 'tech_edit_symptom', title: 'Problema / sintoma' },
-      { id: 'tech_edit_impact', title: 'Impacto operacional' },
-      { id: 'tech_edit_contingency', title: 'Contingência' },
-      { id: 'tech_edit_risk', title: 'Risco informado' },
+      { id: 'tech_edit_alarm', title: 'Código de alarme' },
+      { id: 'tech_edit_more', title: 'Mais dados técnicos' },
     ];
   if (conversation.route !== 'commercial' || conversation.context.service) return undefined;
   return commercialServices.map((service, index) => ({
@@ -1058,11 +1214,16 @@ function scheduleIncludesDay(days: string, weekday: string): boolean {
 function commercialFieldFromLabel(label: string): CommercialContextField | undefined {
   const aliases: Record<string, CommercialContextField> = {
     local: 'location',
+    'local / unidade': 'location',
+    'local/unidade': 'location',
     cidade: 'location',
     nome: 'contactName',
+    'nome do contato': 'contactName',
     contato: 'contactName',
     empresa: 'company',
     cnpj: 'cnpj',
+    cpf: 'cnpj',
+    'cnpj ou cpf': 'cnpj',
     telefone: 'contactPhone',
     celular: 'contactPhone',
     email: 'email',
@@ -1076,9 +1237,12 @@ function commercialFieldFromLabel(label: string): CommercialContextField | undef
 function technicalFieldFromLabel(label: string): TechnicalContextField | undefined {
   const aliases: Record<string, TechnicalContextField> = {
     nome: 'contactName',
+    'nome do contato': 'contactName',
     contato: 'contactName',
     empresa: 'company',
     local: 'location',
+    'local / unidade': 'location',
+    'local/unidade': 'location',
     equipamento: 'equipment',
     problema: 'symptom',
     sintoma: 'symptom',
@@ -1086,6 +1250,35 @@ function technicalFieldFromLabel(label: string): TechnicalContextField | undefin
     contingência: 'contingency',
     contingencia: 'contingency',
     risco: 'reportedRisk',
+    contrato: 'contractReference',
+    'contrato / histórico': 'contractReference',
+    'contrato/histórico': 'contractReference',
+    'contrato / historico': 'contractReference',
+    histórico: 'contractReference',
+    historico: 'contractReference',
+    modelo: 'manufacturerModel',
+    fabricante: 'manufacturerModel',
+    'fabricante / modelo': 'manufacturerModel',
+    'fabricante/modelo': 'manufacturerModel',
+    patrimônio: 'assetIdentifier',
+    patrimonio: 'assetIdentifier',
+    série: 'assetIdentifier',
+    serie: 'assetIdentifier',
+    'patrimônio / série': 'assetIdentifier',
+    'patrimonio / serie': 'assetIdentifier',
+    'patrimônio/série': 'assetIdentifier',
+    'patrimonio/serie': 'assetIdentifier',
+    alarme: 'alarm',
+    'código de alarme': 'alarm',
+    'codigo de alarme': 'alarm',
+    frequência: 'startedFrequency',
+    frequencia: 'startedFrequency',
+    'frequência / início': 'startedFrequency',
+    'frequencia / inicio': 'startedFrequency',
+    'impacto operacional': 'operationalImpact',
+    'problema / sintoma': 'symptom',
+    'problema/sintoma': 'symptom',
+    'risco informado': 'reportedRisk',
   };
   return aliases[label.trim().toLocaleLowerCase('pt-BR')];
 }
