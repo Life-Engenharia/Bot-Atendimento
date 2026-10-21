@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { loadEnvironment, type Environment } from './config/env.js';
-import { configureDevelopmentRequestLogging, logController, loggerOptions } from './config/logger.js';
+import {
+  configureDevelopmentRequestLogging,
+  logController,
+  loggerOptions,
+} from './config/logger.js';
 import { SupabaseConversationStore } from './infra/supabase/conversation-store.js';
 import { classifyOperationalDocument } from './infra/openai/operational-document-classifier.js';
 import type { OperationalConfigurationStore } from './modules/internal_operations/application/administrative-menu-service.js';
@@ -27,8 +31,18 @@ const settingKeySchema = z.enum([
 ]);
 const settingValuesSchema = z.object({ values: z.array(z.record(z.string(), z.string())) });
 const smtpSettingSchema = z.object({
-  host: z.string().trim().min(3).max(253).regex(/^[a-z0-9.-]+$/i),
-  port: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(65_535)).transform(String),
+  host: z
+    .string()
+    .trim()
+    .min(3)
+    .max(253)
+    .regex(/^[a-z0-9.-]+$/i),
+  port: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(65_535))
+    .transform(String),
   security: z.enum(['starttls', 'ssl', 'none']),
   user: z.string().trim().email(),
   from: z.string().trim().email(),
@@ -67,17 +81,28 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
   app.addHook('onRequest', async (request, reply) => {
     if (!environment.IAP_REQUIRED || !request.url.startsWith('/api/admin/')) return;
     const identity = request.headers['x-goog-authenticated-user-email'];
-    const email = typeof identity === 'string' ? identity.replace(/^accounts\.google\.com:/, '').toLowerCase() : '';
-    const allowed = (environment.IAP_ALLOWED_EMAILS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
-    if (!email || (allowed.length > 0 && !allowed.includes(email))) return reply.code(403).send({ error: 'Acesso corporativo IAP não autorizado.' });
+    const email =
+      typeof identity === 'string'
+        ? identity.replace(/^accounts\.google\.com:/, '').toLowerCase()
+        : '';
+    const allowed = (environment.IAP_ALLOWED_EMAILS ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (!email || (allowed.length > 0 && !allowed.includes(email)))
+      return reply.code(403).send({ error: 'Acesso corporativo IAP não autorizado.' });
     const user = supabaseStore ? await supabaseStore.findUserByEmail(email) : undefined;
     if (!user?.active || !['admin', 'coordination'].includes(user.role))
-      return reply.code(403).send({ error: 'Sua conta corporativa não possui permissão para a central.' });
+      return reply
+        .code(403)
+        .send({ error: 'Sua conta corporativa não possui permissão para a central.' });
   });
 
   app.get('/health', async () => ({ status: 'ok', service: 'admin' }));
   app.get('/assets/life-logo.png', async (_request, reply) =>
-    reply.type('image/png').send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
+    reply
+      .type('image/png')
+      .send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
   );
   app.get('/', async (_request, reply) => {
     if (!store || !environment.ADMIN_DASHBOARD_TOKEN)
@@ -93,78 +118,115 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
   app.get('/api/admin/documents', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
     return supabaseStore.listOperationalDocuments();
   });
   app.get('/api/admin/overview', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalOverview();
   });
   app.get('/api/admin/health', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalHealth();
   });
   app.post('/api/admin/jobs/alerts', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     const result = await supabaseStore.refreshOperationalAlerts();
     await sendOperationalAlertEmail(result.created, supabaseStore, store, environment);
     return result;
   });
   app.get('/api/admin/alerts', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.listOperationalAlerts();
   });
   app.post<{ Params: { id: string } }>('/api/admin/alerts/:id/resolve', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
-    await supabaseStore.resolveOperationalAlert(request.params.id, 'admin-dashboard'); return reply.code(204).send();
+    await supabaseStore.resolveOperationalAlert(request.params.id, 'admin-dashboard');
+    return reply.code(204).send();
   });
-  app.post<{ Params: { id: string } }>('/api/admin/documents/:id/publish-on-call', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
-    await supabaseStore.setCurrentOnCallSchedule(request.params.id, 'admin-dashboard'); return reply.code(204).send();
-  });
+  app.post<{ Params: { id: string } }>(
+    '/api/admin/documents/:id/publish-on-call',
+    async (request, reply) => {
+      if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+        return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+      await supabaseStore.setCurrentOnCallSchedule(request.params.id, 'admin-dashboard');
+      return reply.code(204).send();
+    },
+  );
   app.post<{ Body: unknown }>('/api/admin/documents', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
     const document = documentUploadSchema.parse(request.body);
     const content = Buffer.from(document.contentBase64, 'base64');
     if (!content.length || content.length > 8 * 1024 * 1024)
       return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
     const { contentBase64: _contentBase64, ...metadata } = document;
-    const insight = await classifyOperationalDocument(environment.OPENAI_API_KEY, environment.OPENAI_MODEL, { fileName: metadata.fileName, mediaType: metadata.mediaType, content });
-    const classified = insight && (metadata.category === 'other' || insight.confidence === 'high') ? { ...metadata, ...insight, onCallDate: metadata.onCallDate ?? insight.onCallDate, onCallMembers: metadata.onCallMembers ?? insight.onCallMembers } : metadata;
-    const saved = await supabaseStore.saveOperationalDocument({ ...classified, sizeBytes: content.byteLength, content });
+    const insight = await classifyOperationalDocument(
+      environment.OPENAI_API_KEY,
+      environment.OPENAI_MODEL,
+      { fileName: metadata.fileName, mediaType: metadata.mediaType, content },
+    );
+    const classified =
+      insight && (metadata.category === 'other' || insight.confidence === 'high')
+        ? {
+            ...metadata,
+            ...insight,
+            onCallDate: metadata.onCallDate ?? insight.onCallDate,
+            onCallMembers: metadata.onCallMembers ?? insight.onCallMembers,
+          }
+        : metadata;
+    const saved = await supabaseStore.saveOperationalDocument({
+      ...classified,
+      sizeBytes: content.byteLength,
+      content,
+    });
     return reply.code(201).send(saved satisfies OperationalDocument);
   });
-  app.put<{ Params: { key: string }; Body: unknown }>('/api/admin/settings/:key', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!store) return reply.code(503).send({ error: 'Painel administrativo não configurado.' });
-    const key = settingKeySchema.parse(request.params.key);
-    const { values } = settingValuesSchema.parse(request.body);
-    if (key === 'email') {
-      if (values.length !== 1) throw new Error('A configuração SMTP deve conter uma única conta de envio.');
-      smtpSettingSchema.parse(values[0]);
-    }
-    await store.replaceSetting(key, values, 'admin-dashboard');
-    return reply.code(204).send();
-  });
+  app.put<{ Params: { key: string }; Body: unknown }>(
+    '/api/admin/settings/:key',
+    async (request, reply) => {
+      if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+        return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!store) return reply.code(503).send({ error: 'Painel administrativo não configurado.' });
+      const key = settingKeySchema.parse(request.params.key);
+      const { values } = settingValuesSchema.parse(request.body);
+      if (key === 'email') {
+        if (values.length !== 1)
+          throw new Error('A configuração SMTP deve conter uma única conta de envio.');
+        smtpSettingSchema.parse(values[0]);
+      }
+      await store.replaceSetting(key, values, 'admin-dashboard');
+      return reply.code(204).send();
+    },
+  );
   app.post<{ Body: unknown }>('/api/admin/email/test', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });
     if (!store) return reply.code(503).send({ error: 'Painel administrativo não configurado.' });
     if (!environment.SMTP_PASSWORD)
-      return reply.code(503).send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de testar o envio.' });
+      return reply
+        .code(503)
+        .send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de testar o envio.' });
     const { to } = emailTestSchema.parse(request.body);
     const configuration = await smtpConfigurationFromSettings(store, environment.SMTP_PASSWORD);
     if (!configuration)
-      return reply.code(422).send({ error: 'Preencha e salve a configuração SMTP no painel antes de testar.' });
+      return reply
+        .code(422)
+        .send({ error: 'Preencha e salve a configuração SMTP no painel antes de testar.' });
     await new SmtpEmailSender(configuration).send({
       to,
       subject: 'Teste de envio - Life Engenharia',
@@ -177,11 +239,15 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
       return reply.code(401).send({ error: 'Não autorizado.' });
     if (!store) return reply.code(503).send({ error: 'Painel administrativo não configurado.' });
     if (!environment.SMTP_PASSWORD)
-      return reply.code(503).send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de enviar.' });
+      return reply
+        .code(503)
+        .send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de enviar.' });
     const message = emailSendSchema.parse(request.body);
     const configuration = await smtpConfigurationFromSettings(store, environment.SMTP_PASSWORD);
     if (!configuration)
-      return reply.code(422).send({ error: 'Preencha e salve a configuração SMTP no painel antes de enviar.' });
+      return reply
+        .code(422)
+        .send({ error: 'Preencha e salve a configuração SMTP no painel antes de enviar.' });
     await new SmtpEmailSender(configuration).send(message);
     return reply.code(202).send({ accepted: true });
   });
@@ -192,13 +258,34 @@ function authorizeDashboard(authorization: string | undefined, token: string | u
   return Boolean(token && authorization === `Bearer ${token}`);
 }
 
-async function sendOperationalAlertEmail(created: number, supabaseStore: SupabaseConversationStore, store: OperationalConfigurationStore | undefined, environment: Environment): Promise<void> {
-  const recipients = (environment.ALERT_NOTIFICATION_EMAILS ?? '').split(',').map((email) => email.trim()).filter(Boolean);
+async function sendOperationalAlertEmail(
+  created: number,
+  supabaseStore: SupabaseConversationStore,
+  store: OperationalConfigurationStore | undefined,
+  environment: Environment,
+): Promise<void> {
+  const recipients = (environment.ALERT_NOTIFICATION_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim())
+    .filter(Boolean);
   if (!created || !recipients.length || !store || !environment.SMTP_PASSWORD) return;
   const configuration = await smtpConfigurationFromSettings(store, environment.SMTP_PASSWORD);
   if (!configuration) return;
-  const alerts = (await supabaseStore.listOperationalAlerts()).filter((alert) => alert.status === 'open').slice(0, 8);
+  const alerts = (await supabaseStore.listOperationalAlerts())
+    .filter((alert) => alert.status === 'open')
+    .slice(0, 8);
   const text = alerts.map((alert) => `• ${alert.title}: ${alert.detail}`).join('\n');
-  await Promise.allSettled(recipients.map((to) => new SmtpEmailSender(configuration).send({ to, subject: 'Ação necessária · Central Life', text })));
-  await supabaseStore.audit('operational.alert_notified', 'system', { recipients: recipients.length, alerts: alerts.length });
+  await Promise.allSettled(
+    recipients.map((to) =>
+      new SmtpEmailSender(configuration).send({
+        to,
+        subject: 'Ação necessária · Central Life',
+        text,
+      }),
+    ),
+  );
+  await supabaseStore.audit('operational.alert_notified', 'system', {
+    recipients: recipients.length,
+    alerts: alerts.length,
+  });
 }

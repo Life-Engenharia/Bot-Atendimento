@@ -8,7 +8,12 @@ import { EventEmitter } from 'node:events';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { loadEnvironment, Environment } from './config/env.js';
-import { configureDevelopmentRequestLogging, logController, loggerOptions } from './config/logger.js';
+import {
+  configureDevelopmentRequestLogging,
+  logController,
+  loggerOptions,
+  logCorrelation,
+} from './config/logger.js';
 import { InMemoryAuditLog } from './modules/audit/audit-log.js';
 import { MenuService } from './modules/conversations/application/menu-service.js';
 import { PersistedMenuService } from './modules/conversations/application/persisted-menu-service.js';
@@ -21,9 +26,14 @@ import { classifyOperationalDocument } from './infra/openai/operational-document
 import { AdministrativeMenuService } from './modules/internal_operations/application/administrative-menu-service.js';
 import { OpenAiTriageClient } from './infra/openai/openai-triage-client.js';
 import { OpenAiResponseRefiner } from './infra/openai/openai-response-refiner.js';
+import { OpenAiMediaAnalyzer } from './infra/openai/openai-media-analyzer.js';
 import { MediaIngestionService } from './modules/conversations/application/media-ingestion-service.js';
 import { WhatsAppCloudClient } from './infra/meta/whatsapp-cloud-client.js';
-import { isValidMetaSignature, normalizeMetaWebhook } from './infra/meta/whatsapp-cloud-adapter.js';
+import {
+  isValidMetaSignature,
+  normalizeMetaDeliveryStatuses,
+  normalizeMetaWebhook,
+} from './infra/meta/whatsapp-cloud-adapter.js';
 import type { OutboundSender } from './modules/conversations/application/persisted-menu-service.js';
 import type {
   OperationalConfigurationStore,
@@ -35,6 +45,7 @@ import type { AppRole, AppUser } from './infra/supabase/conversation-store.js';
 import { PloomesClient } from './infra/ploomes/ploomes-client.js';
 import { CommercialPloomesSyncService } from './infra/ploomes/commercial-sync-service.js';
 import { SmtpEmailSender, smtpConfigurationFromSettings } from './infra/email/smtp-email-sender.js';
+import { OperationalNotifier } from './modules/internal_operations/application/operational-notifier.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -50,6 +61,8 @@ export type AppDependencies = {
   persistedMenuService?: PersistedMenuService;
   operationalConfigurationStore?: OperationalConfigurationStore;
   outboundSender?: OutboundSender;
+  /** Permite exercitar o painel de operação sem uma conexão real no Supabase. */
+  supabaseStore?: SupabaseConversationStore;
 };
 
 const settingKeySchema = z.enum([
@@ -63,8 +76,18 @@ const settingKeySchema = z.enum([
 ]);
 const settingValuesSchema = z.object({ values: z.array(z.record(z.string(), z.string())) });
 const smtpSettingSchema = z.object({
-  host: z.string().trim().min(3).max(253).regex(/^[a-z0-9.-]+$/i),
-  port: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(65_535)).transform(String),
+  host: z
+    .string()
+    .trim()
+    .min(3)
+    .max(253)
+    .regex(/^[a-z0-9.-]+$/i),
+  port: z
+    .string()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(65_535))
+    .transform(String),
   security: z.enum(['starttls', 'ssl', 'none']),
   user: z.string().trim().email(),
   from: z.string().trim().email(),
@@ -73,11 +96,20 @@ const operatorMessageSchema = z.object({ text: z.string().trim().min(1).max(4_00
 const operatorNoteSchema = z.object({ text: z.string().trim().min(1).max(2_000) });
 const followUpSchema = z.object({ followUpAt: z.string().datetime() });
 const closeConversationSchema = z.object({ resolutionNote: z.string().trim().min(3).max(2_000) });
-const transferSchema = z.object({ destination: z.enum(['commercial', 'technical', 'on_call', 'coordination']) });
+const manualPloomesSchema = z.object({ ploomesId: z.string().trim().min(1).max(120) });
+const manualServiceOrderSchema = z.object({
+  serviceOrderNumber: z.string().trim().min(1).max(120),
+});
+const transferSchema = z.object({
+  destination: z.enum(['commercial', 'technical', 'on_call', 'coordination']),
+});
 const userSchema = z.object({
-  name: z.string().trim().min(2).max(120), email: z.string().email(), password: z.string().min(12).max(200),
+  name: z.string().trim().min(2).max(120),
+  email: z.string().email(),
+  password: z.string().min(12).max(200),
   role: z.enum(['admin', 'coordination', 'commercial', 'technical', 'on_call', 'viewer']),
-  area: z.enum(['commercial', 'technical', 'on_call', 'coordination']), active: z.boolean().default(true),
+  area: z.enum(['commercial', 'technical', 'on_call', 'coordination']),
+  active: z.boolean().default(true),
 });
 const emailTestSchema = z.object({ to: z.string().trim().email() });
 const emailSendSchema = z.object({
@@ -85,13 +117,21 @@ const emailSendSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   text: z.string().trim().min(1).max(10_000),
 });
+const retentionJobSchema = z.object({
+  dryRun: z.boolean().default(true),
+  conversationDays: z.number().int().min(30).max(3_650).default(180),
+  attachmentDays: z.number().int().min(7).max(3_650).default(90),
+});
 const documentUploadSchema = z.object({
-  fileName: z.string().trim().min(1).max(180), mediaType: z.string().trim().min(1).max(120),
+  fileName: z.string().trim().min(1).max(180),
+  mediaType: z.string().trim().min(1).max(120),
   contentBase64: z.string().min(1).max(11_200_000),
   category: z.enum(['on_call_schedule', 'procedure', 'commercial', 'technical', 'policy', 'other']),
-  confidence: z.enum(['high', 'medium', 'needs_review']), summary: z.string().trim().min(3).max(500),
+  confidence: z.enum(['high', 'medium', 'needs_review']),
+  summary: z.string().trim().min(3).max(500),
   status: z.enum(['ready', 'needs_review']),
-  onCallDate: z.string().trim().max(120).optional(), onCallMembers: z.string().trim().max(500).optional(),
+  onCallDate: z.string().trim().max(120).optional(),
+  onCallMembers: z.string().trim().max(500).optional(),
 });
 
 export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
@@ -100,9 +140,10 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const webhookProcessor = dependencies.webhookProcessor ?? new WebhookProcessor(auditLog);
   const menuService = dependencies.menuService ?? new MenuService(auditLog);
   const supabaseStore =
-    environment.SUPABASE_URL && environment.SUPABASE_API
+    dependencies.supabaseStore ??
+    (environment.SUPABASE_URL && environment.SUPABASE_API
       ? new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API)
-      : undefined;
+      : undefined);
   const operationalConfigurationStore = dependencies.operationalConfigurationStore ?? supabaseStore;
   const administrativeMenu =
     operationalConfigurationStore && environment.ADMIN_PHONE_E164
@@ -116,24 +157,51 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     environment.OPENAI_API_KEY && environment.OPENAI_MODEL
       ? new OpenAiResponseRefiner(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
       : undefined;
-  const whatsappClient = environment.META_ACCESS_TOKEN && environment.WHATSAPP_PHONE_NUMBER_ID
-    ? new WhatsAppCloudClient(environment.META_ACCESS_TOKEN, environment.WHATSAPP_PHONE_NUMBER_ID)
-    : undefined;
+  const whatsappClient =
+    environment.META_ACCESS_TOKEN && environment.WHATSAPP_PHONE_NUMBER_ID
+      ? new WhatsAppCloudClient(environment.META_ACCESS_TOKEN, environment.WHATSAPP_PHONE_NUMBER_ID)
+      : undefined;
   const outboundSender = dependencies.outboundSender ?? whatsappClient;
+  const operationalNotifier = supabaseStore
+    ? new OperationalNotifier(supabaseStore, outboundSender, {
+        commercial: environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
+        technical: environment.TECHNICAL_NOTIFICATION_PHONE_E164,
+      })
+    : undefined;
   const mediaIngestionService = supabaseStore
-    ? new MediaIngestionService(supabaseStore, whatsappClient)
+    ? new MediaIngestionService(
+        supabaseStore,
+        whatsappClient,
+        environment.OPENAI_API_KEY && environment.OPENAI_MODEL
+          ? new OpenAiMediaAnalyzer(
+              environment.OPENAI_API_KEY,
+              environment.OPENAI_MODEL,
+              environment.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+            )
+          : undefined,
+      )
     : undefined;
   const persistedMenuService =
     dependencies.persistedMenuService ??
     (supabaseStore
-      ? new PersistedMenuService(supabaseStore, administrativeMenu, triageAnalyzer, outboundSender, responseRefiner, mediaIngestionService)
+      ? new PersistedMenuService(
+          supabaseStore,
+          administrativeMenu,
+          triageAnalyzer,
+          outboundSender,
+          responseRefiner,
+          mediaIngestionService,
+          operationalNotifier,
+          () => operatorEvents.emit('inbox'),
+          operationalConfigurationStore,
+        )
       : undefined);
   const commercialSyncService =
     supabaseStore && environment.PLOOMES_USER_KEY
       ? new CommercialPloomesSyncService(
-        supabaseStore,
-        new PloomesClient(environment.PLOOMES_USER_KEY),
-      )
+          supabaseStore,
+          new PloomesClient(environment.PLOOMES_USER_KEY),
+        )
       : undefined;
   const app = Fastify({
     logger: loggerOptions(environment),
@@ -143,16 +211,71 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   });
   const operatorEvents = new EventEmitter();
   operatorEvents.setMaxListeners(0);
+  let webhookDrainScheduled = false;
+  const drainWebhookQueue = async () => {
+    if (!supabaseStore || !persistedMenuService) return;
+    for (;;) {
+      // Processa pequenos lotes em paralelo para que uma chamada externa lenta
+      // (OpenAI, Supabase ou Meta) não segure todos os demais atendimentos.
+      // A fila do banco continua garantindo que cada mensagem seja processada
+      // uma única vez; o limite baixo evita sobrecarregar as APIs.
+      const jobs = await supabaseStore.claimWebhookJobs(4);
+      if (!jobs.length) return;
+      // Mensagens de contatos diferentes podem rodar juntas, mas as do mesmo
+      // contato precisam manter a ordem (ex.: menu -> seleção do serviço).
+      const groups = new Map<string, typeof jobs>();
+      for (const job of jobs) {
+        const key = job.message.from;
+        const group = groups.get(key) ?? [];
+        group.push(job);
+        groups.set(key, group);
+      }
+      await Promise.all(
+        [...groups.values()].map(async (group) => {
+          for (const job of group) {
+            try {
+              const result = await persistedMenuService.process([job.message]);
+              if (result.processed > 0) operatorEvents.emit('inbox');
+              await supabaseStore.completeWebhookJob(job.id);
+            } catch (error) {
+              await supabaseStore.failWebhookJob(job.id, error);
+              app.log.error({ err: error, jobId: job.id }, 'webhook_job_failed');
+            }
+          }
+        }),
+      );
+    }
+  };
+  const scheduleWebhookDrain = () => {
+    if (webhookDrainScheduled || !supabaseStore || !persistedMenuService) return;
+    webhookDrainScheduled = true;
+    setImmediate(() => {
+      void drainWebhookQueue()
+        .catch((error) => app.log.error({ err: error }, 'webhook_queue_drain_failed'))
+        .finally(() => {
+          webhookDrainScheduled = false;
+        });
+    });
+  };
   configureDevelopmentRequestLogging(app, environment);
   app.addHook('onRequest', async (request, reply) => {
     if (!environment.IAP_REQUIRED || !request.url.startsWith('/api/admin/')) return;
     const identity = request.headers['x-goog-authenticated-user-email'];
-    const email = typeof identity === 'string' ? identity.replace(/^accounts\.google\.com:/, '').toLowerCase() : '';
-    const allowed = (environment.IAP_ALLOWED_EMAILS ?? '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
-    if (!email || (allowed.length > 0 && !allowed.includes(email))) return reply.code(403).send({ error: 'Acesso corporativo IAP não autorizado.' });
+    const email =
+      typeof identity === 'string'
+        ? identity.replace(/^accounts\.google\.com:/, '').toLowerCase()
+        : '';
+    const allowed = (environment.IAP_ALLOWED_EMAILS ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (!email || (allowed.length > 0 && !allowed.includes(email)))
+      return reply.code(403).send({ error: 'Acesso corporativo IAP não autorizado.' });
     const user = supabaseStore ? await supabaseStore.findUserByEmail(email) : undefined;
     if (!user?.active || !['admin', 'coordination'].includes(user.role))
-      return reply.code(403).send({ error: 'Sua conta corporativa não possui permissão para a central.' });
+      return reply
+        .code(403)
+        .send({ error: 'Sua conta corporativa não possui permissão para a central.' });
   });
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
     request.rawBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
@@ -179,7 +302,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.get('/health', async () => ({ status: 'ok' }));
 
   app.get('/assets/life-logo.png', async (_request, reply) =>
-    reply.type('image/png').send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
+    reply
+      .type('image/png')
+      .send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
   );
 
   app.get('/admin', async (_request, reply) => {
@@ -206,7 +331,8 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const key = settingKeySchema.parse(request.params.key);
       const { values } = settingValuesSchema.parse(request.body);
       if (key === 'email') {
-        if (values.length !== 1) throw new Error('A configuração SMTP deve conter uma única conta de envio.');
+        if (values.length !== 1)
+          throw new Error('A configuração SMTP deve conter uma única conta de envio.');
         smtpSettingSchema.parse(values[0]);
       }
       await operationalConfigurationStore.replaceSetting(key, values, 'admin-dashboard');
@@ -215,79 +341,136 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   );
 
   app.get('/api/admin/users', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Painel não configurado.' });
     const users = await supabaseStore.listUsers();
     return users.map(({ passwordHash: _passwordHash, ...user }) => user);
   });
 
   app.get('/api/admin/documents', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
     return supabaseStore.listOperationalDocuments();
   });
 
   app.get('/api/admin/overview', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalOverview();
   });
   app.get('/api/admin/health', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalHealth();
   });
 
   app.post('/api/admin/jobs/alerts', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     const result = await supabaseStore.refreshOperationalAlerts();
-    await sendOperationalAlertEmail(result.created, supabaseStore, operationalConfigurationStore, environment);
+    await sendOperationalAlertEmail(
+      result.created,
+      supabaseStore,
+      operationalConfigurationStore,
+      environment,
+    );
     return result;
   });
   app.get('/api/admin/alerts', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.listOperationalAlerts();
   });
   app.post<{ Params: { id: string } }>('/api/admin/alerts/:id/resolve', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
-    await supabaseStore.resolveOperationalAlert(request.params.id, 'admin-dashboard'); return reply.code(204).send();
+    await supabaseStore.resolveOperationalAlert(request.params.id, 'admin-dashboard');
+    return reply.code(204).send();
   });
-  app.post<{ Params: { id: string } }>('/api/admin/documents/:id/publish-on-call', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
-    await supabaseStore.setCurrentOnCallSchedule(request.params.id, 'admin-dashboard'); return reply.code(204).send();
-  });
+  app.post<{ Params: { id: string } }>(
+    '/api/admin/documents/:id/publish-on-call',
+    async (request, reply) => {
+      if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+        return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
+      await supabaseStore.setCurrentOnCallSchedule(request.params.id, 'admin-dashboard');
+      return reply.code(204).send();
+    },
+  );
 
   app.post<{ Body: unknown }>('/api/admin/documents', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Biblioteca de documentos não configurada.' });
     const document = documentUploadSchema.parse(request.body);
     const content = Buffer.from(document.contentBase64, 'base64');
-    if (!content.length || content.length > 8 * 1024 * 1024) return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
+    if (!content.length || content.length > 8 * 1024 * 1024)
+      return reply.code(413).send({ error: 'Envie arquivos de até 8 MB.' });
     const { contentBase64: _contentBase64, ...metadata } = document;
-    const insight = await classifyOperationalDocument(environment.OPENAI_API_KEY, environment.OPENAI_MODEL, { fileName: metadata.fileName, mediaType: metadata.mediaType, content });
-    const classified = insight && (metadata.category === 'other' || insight.confidence === 'high') ? { ...metadata, ...insight, onCallDate: metadata.onCallDate ?? insight.onCallDate, onCallMembers: metadata.onCallMembers ?? insight.onCallMembers } : metadata;
-    return reply.code(201).send(await supabaseStore.saveOperationalDocument({ ...classified, sizeBytes: content.byteLength, content }));
+    const insight = await classifyOperationalDocument(
+      environment.OPENAI_API_KEY,
+      environment.OPENAI_MODEL,
+      { fileName: metadata.fileName, mediaType: metadata.mediaType, content },
+    );
+    const classified =
+      insight && (metadata.category === 'other' || insight.confidence === 'high')
+        ? {
+            ...metadata,
+            ...insight,
+            onCallDate: metadata.onCallDate ?? insight.onCallDate,
+            onCallMembers: metadata.onCallMembers ?? insight.onCallMembers,
+          }
+        : metadata;
+    return reply.code(201).send(
+      await supabaseStore.saveOperationalDocument({
+        ...classified,
+        sizeBytes: content.byteLength,
+        content,
+      }),
+    );
   });
 
   app.post<{ Body: unknown }>('/api/admin/users', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Painel não configurado.' });
     const user = userSchema.parse(request.body);
     await supabaseStore.createUser({ ...user, passwordHash: hashPassword(user.password) });
     return reply.code(201).send({ created: true });
   });
 
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/admin/users/:id', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN)) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel não configurado.' });
-    const user = userSchema.pick({ role: true, area: true, active: true }).parse(request.body);
-    await supabaseStore.updateUser(request.params.id, user);
-    return reply.code(204).send();
-  });
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/admin/users/:id',
+    async (request, reply) => {
+      if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+        return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore) return reply.code(503).send({ error: 'Painel não configurado.' });
+      const user = userSchema.pick({ role: true, area: true, active: true }).parse(request.body);
+      await supabaseStore.updateUser(request.params.id, user);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/admin/users/:id/password',
+    async (request, reply) => {
+      if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+        return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore) return reply.code(503).send({ error: 'Painel não configurado.' });
+      const body = z.object({ password: z.string().min(8).max(128) }).parse(request.body);
+      await supabaseStore.updateUserPassword(request.params.id, hashPassword(body.password));
+      return reply.code(204).send();
+    },
+  );
 
   app.post<{ Body: unknown }>('/api/admin/email/test', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
@@ -295,7 +478,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     if (!operationalConfigurationStore)
       return reply.code(503).send({ error: 'Dashboard administrativa não configurada.' });
     if (!environment.SMTP_PASSWORD)
-      return reply.code(503).send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de testar o envio.' });
+      return reply
+        .code(503)
+        .send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de testar o envio.' });
 
     const { to } = emailTestSchema.parse(request.body);
     const configuration = await smtpConfigurationFromSettings(
@@ -303,7 +488,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       environment.SMTP_PASSWORD,
     );
     if (!configuration)
-      return reply.code(422).send({ error: 'Preencha e salve a configuração SMTP no painel antes de testar.' });
+      return reply
+        .code(422)
+        .send({ error: 'Preencha e salve a configuração SMTP no painel antes de testar.' });
 
     await new SmtpEmailSender(configuration).send({
       to,
@@ -319,7 +506,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     if (!operationalConfigurationStore)
       return reply.code(503).send({ error: 'Dashboard administrativa não configurada.' });
     if (!environment.SMTP_PASSWORD)
-      return reply.code(503).send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de enviar.' });
+      return reply
+        .code(503)
+        .send({ error: 'Defina SMTP_PASSWORD no ambiente seguro antes de enviar.' });
 
     const message = emailSendSchema.parse(request.body);
     const configuration = await smtpConfigurationFromSettings(
@@ -327,7 +516,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       environment.SMTP_PASSWORD,
     );
     if (!configuration)
-      return reply.code(422).send({ error: 'Preencha e salve a configuração SMTP no painel antes de enviar.' });
+      return reply
+        .code(422)
+        .send({ error: 'Preencha e salve a configuração SMTP no painel antes de enviar.' });
 
     await new SmtpEmailSender(configuration).send(message);
     return reply.code(202).send({ accepted: true });
@@ -344,46 +535,93 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.post('/api/admin/jobs/escalations', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
       return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Banco de dados ainda não configurado.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Banco de dados ainda não configurado.' });
     return supabaseStore.runDueEscalations();
   });
 
+  app.post<{ Body: unknown }>('/api/admin/jobs/retention', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore || !operationalConfigurationStore)
+      return reply.code(503).send({ error: 'Banco de dados ainda não configurado.' });
+    const job = retentionJobSchema.parse(request.body ?? {});
+    const privacySettings = await operationalConfigurationStore.listSettings();
+    const approved = privacySettings.some(
+      (setting) =>
+        setting.key === 'privacidade' &&
+        setting.value.approved === 'true' &&
+        Boolean(setting.value.approvedAt) &&
+        Boolean(setting.value.approvedBy),
+    );
+    if (!job.dryRun && !approved)
+      return reply.code(409).send({
+        error: 'A exclusão requer uma política LGPD aprovada, com data e responsável registrados.',
+      });
+    const result = await supabaseStore.runRetention(job);
+    logCorrelation(app, {
+      requestId: request.id,
+      action: job.dryRun ? 'retention.simulated' : 'retention.executed',
+    });
+    return { ...result, dryRun: job.dryRun };
+  });
+
   app.post<{ Body: unknown }>('/api/operator/login', async (request, reply) => {
-    if (!supabaseStore || !environment.ADMIN_DASHBOARD_TOKEN) return reply.code(503).send({ error: 'Painel não configurado.' });
-    const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(request.body);
+    if (!supabaseStore || !environment.ADMIN_DASHBOARD_TOKEN)
+      return reply.code(503).send({ error: 'Painel não configurado.' });
+    const body = z
+      .object({ email: z.string().email(), password: z.string().min(1) })
+      .parse(request.body);
     const user = await supabaseStore.findUserByEmail(body.email);
-    if (!user || !user.active || !verifyPassword(body.password, user.passwordHash)) return reply.code(401).send({ error: 'E-mail ou senha inválidos.' });
+    if (!user || !user.active || !verifyPassword(body.password, user.passwordHash))
+      return reply.code(401).send({ error: 'E-mail ou senha inválidos.' });
     return { token: signSession(user, environment.ADMIN_DASHBOARD_TOKEN), user: publicUser(user) };
   });
 
   app.get('/api/operator/crm/metrics', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
     if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!['admin', 'coordination', 'commercial'].includes(actor.role)) return reply.code(403).send({ error: 'Seu cargo não tem acesso às métricas comerciais.' });
-    if (!environment.PLOOMES_USER_KEY) return { connected: false, reason: 'Integração Ploomes ainda não configurada.' };
+    if (!['admin', 'coordination', 'commercial'].includes(actor.role))
+      return reply.code(403).send({ error: 'Seu cargo não tem acesso às métricas comerciais.' });
+    if (!environment.PLOOMES_USER_KEY)
+      return { connected: false, reason: 'Integração Ploomes ainda não configurada.' };
     try {
       const metrics = await new PloomesClient(environment.PLOOMES_USER_KEY).getCommercialMetrics();
       return { connected: true, metrics };
     } catch {
-      return reply.code(502).send({ error: 'Não foi possível consultar o Ploomes agora. A fila local continua disponível.' });
+      return reply.code(502).send({
+        error: 'Não foi possível consultar o Ploomes agora. A fila local continua disponível.',
+      });
     }
   });
 
   app.get('/api/operator/crm/overview', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
     if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
     if (!['admin', 'coordination', 'commercial'].includes(actor.role))
       return reply.code(403).send({ error: 'Seu cargo não tem acesso ao CRM comercial.' });
     if (!environment.PLOOMES_USER_KEY)
       return { connected: false, reason: 'Integração Ploomes ainda não configurada.' };
     try {
-      return { connected: true, overview: await new PloomesClient(environment.PLOOMES_USER_KEY).getCommercialOverview() };
+      return {
+        connected: true,
+        overview: await new PloomesClient(environment.PLOOMES_USER_KEY).getCommercialOverview(),
+      };
     } catch {
-      return reply.code(502).send({ error: 'Não foi possível consultar o Ploomes agora. Tente atualizar novamente.' });
+      return reply
+        .code(502)
+        .send({ error: 'Não foi possível consultar o Ploomes agora. Tente atualizar novamente.' });
     }
   });
 
   app.get('/operator', async (_request, reply) => {
+    if (process.env.OPERATOR_WEB_URL) return reply.redirect(process.env.OPERATOR_WEB_URL);
     if (!supabaseStore || !environment.ADMIN_DASHBOARD_TOKEN)
       return reply.code(503).type('text/plain').send('Painel de atendimento não configurado.');
     const enhancements = `<style>
@@ -468,11 +706,16 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
         restoreSession();
       })();
     </script>`;
-    return reply.type('text/html; charset=utf-8').send(operatorInboxHtml.replace('</body>', `${enhancements}</body>`));
+    return reply
+      .type('text/html; charset=utf-8')
+      .send(operatorInboxHtml.replace('</body>', `${enhancements}</body>`));
   });
 
   app.get('/api/operator/events', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
     if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -490,133 +733,414 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     });
   });
 
-  app.get<{ Querystring: { includeClosed?: string } }>('/api/operator/conversations', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor)
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    return supabaseStore.listOperatorConversations(
-      visibleAreas(actor),
-      request.query.includeClosed === 'true',
-    );
-  });
+  app.get<{ Querystring: { includeClosed?: string } }>(
+    '/api/operator/conversations',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      return supabaseStore.listOperatorConversations(
+        visibleAreas(actor),
+        request.query.includeClosed === 'true',
+      );
+    },
+  );
 
   app.get<{ Params: { id: string } }>('/api/operator/conversations/:id', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor)
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
+    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
     const conversation = await supabaseStore.getOperatorConversation(request.params.id);
     if (!conversation) return reply.code(404).send({ error: 'Conversa não encontrada.' });
-    return canAccessConversation(actor, conversation.destinationArea) ? conversation : reply.code(403).send({ error: 'Seu cargo não pode acessar esta fila.' });
+    return canAccessConversation(actor, conversation.destinationArea)
+      ? conversation
+      : reply.code(403).send({ error: 'Seu cargo não pode acessar esta fila.' });
   });
 
-  app.get<{ Params: { id: string; attachmentId: string } }>('/api/operator/conversations/:id/attachments/:attachmentId/url', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode acessar este anexo.' });
-    const url = await supabaseStore.createAttachmentSignedUrl(conversation.id, request.params.attachmentId);
-    return url ? { url, expiresInSeconds: 300 } : reply.code(404).send({ error: 'Anexo não disponível para visualização.' });
-  });
+  app.get<{ Params: { id: string; attachmentId: string } }>(
+    '/api/operator/conversations/:id/attachments/:attachmentId/url',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar este anexo.' });
+      const url = await supabaseStore.createAttachmentSignedUrl(
+        conversation.id,
+        request.params.attachmentId,
+      );
+      return url
+        ? { url, expiresInSeconds: 300 }
+        : reply.code(404).send({ error: 'Anexo não disponível para visualização.' });
+    },
+  );
 
-  app.post<{ Params: { id: string } }>('/api/operator/conversations/:id/claim', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor)
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    if (actor.role === 'viewer') return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode assumir esta fila.' });
-    const claimed = await supabaseStore.claimConversation(request.params.id, actor.name);
-    if (!claimed) return reply.code(409).send({ error: 'Esta conversa já foi assumida.' });
-    const handoffMessage = `Estamos passando para um atendimento humanizado. ${actor.name} assume a conversa e já pode ajudar você.`;
-    if (outboundSender) {
-      try {
-        const delivery = await outboundSender.sendText(conversation.contactPhone, handoffMessage);
-        await supabaseStore.saveOutbound(conversation.id, handoffMessage, { messageId: delivery.messageId, status: 'sent' });
-      } catch {
-        await supabaseStore.audit('conversation.handoff_notification_failed', actor.name, { conversationId: conversation.id });
+  app.post<{ Params: { id: string } }>(
+    '/api/operator/conversations/:id/claim',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      if (actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode assumir esta fila.' });
+      const claimed = await supabaseStore.claimConversation(request.params.id, actor.name);
+      if (!claimed) return reply.code(409).send({ error: 'Esta conversa já foi assumida.' });
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.conversation_claimed',
+      });
+      const handoffMessage = `Estamos passando para um atendimento humanizado. ${actor.name} assume a conversa e já pode ajudar você.`;
+      if (outboundSender) {
+        try {
+          const delivery = await outboundSender.sendText(conversation.contactPhone, handoffMessage);
+          await supabaseStore.saveOutbound(conversation.id, handoffMessage, {
+            messageId: delivery.messageId,
+            status: 'sent',
+          });
+        } catch {
+          await supabaseStore.audit('conversation.handoff_notification_failed', actor.name, {
+            conversationId: conversation.id,
+          });
+        }
       }
-    }
-    return reply.code(204).send();
-  });
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
 
-  app.post<{ Params: { id: string } }>('/api/operator/conversations/:id/release', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor)
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    if (actor.role === 'viewer') return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode alterar esta fila.' });
-    const released = await supabaseStore.releaseConversation(request.params.id, actor.name);
-    return released ? reply.code(204).send() : reply.code(409).send({ error: 'A conversa não está atribuída a você.' });
-  });
+  app.post<{ Params: { id: string } }>(
+    '/api/operator/conversations/:id/release',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      if (actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode alterar esta fila.' });
+      const released = await supabaseStore.releaseConversation(request.params.id, actor.name);
+      if (released)
+        logCorrelation(app, {
+          requestId: request.id,
+          conversationId: conversation.id,
+          action: 'operator.conversation_released',
+        });
+      if (released) operatorEvents.emit('inbox');
+      return released
+        ? reply.code(204).send()
+        : reply.code(409).send({ error: 'A conversa não está atribuída a você.' });
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/operator/conversations/:id/transfer', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    if (!['admin', 'coordination'].includes(actor.role)) return reply.code(403).send({ error: 'Somente Administração ou Coordenação pode transferir entre setores.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation) return reply.code(404).send({ error: 'Conversa não encontrada.' });
-    const { destination } = transferSchema.parse(request.body);
-    await supabaseStore.transferConversation(conversation.id, destination, actor.name);
-    return reply.code(204).send();
-  });
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/commercial/manual-ploomes',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      if (!['admin', 'coordination', 'commercial'].includes(actor.role))
+        return reply
+          .code(403)
+          .send({ error: 'Somente o Comercial pode confirmar o lançamento manual.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (
+        !conversation ||
+        conversation.destinationArea !== 'commercial' ||
+        !conversation.protocolId
+      )
+        return reply.code(404).send({ error: 'Oportunidade comercial não encontrada.' });
+      const { ploomesId } = manualPloomesSchema.parse(request.body);
+      await supabaseStore.registerManualPloomes(
+        conversation.id,
+        conversation.protocolId,
+        actor.name,
+        ploomesId,
+      );
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/operator/conversations/:id/notes', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor || actor.role === 'viewer') return reply.code(403).send({ error: 'Seu perfil não pode adicionar notas.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
-    await supabaseStore.addOperatorNote(conversation.id, actor.name, operatorNoteSchema.parse(request.body).text);
-    return reply.code(201).send({ created: true });
-  });
+  app.post<{ Params: { id: string } }>(
+    '/api/operator/conversations/:id/commercial/sync-ploomes',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore || !commercialSyncService)
+        return reply.code(503).send({ error: 'Ploomes ainda não está configurado.' });
+      if (!['admin', 'coordination', 'commercial'].includes(actor.role))
+        return reply
+          .code(403)
+          .send({ error: 'Somente o Comercial pode sincronizar uma oportunidade.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (
+        !conversation ||
+        conversation.destinationArea !== 'commercial' ||
+        !conversation.protocolId
+      )
+        return reply.code(404).send({ error: 'Oportunidade comercial não encontrada.' });
+      const result = await commercialSyncService.runProtocol(conversation.protocolId);
+      if (!result.processed)
+        return reply
+          .code(409)
+          .send({ error: 'Esta oportunidade já foi sincronizada ou não possui pendência.' });
+      operatorEvents.emit('inbox');
+      return result.failed
+        ? reply.code(502).send({
+            error:
+              'O Ploomes não confirmou a inclusão. A pendência foi mantida para nova tentativa.',
+          })
+        : reply.code(201).send({ synced: true });
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/operator/conversations/:id/follow-up', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor || actor.role === 'viewer') return reply.code(403).send({ error: 'Seu perfil não pode agendar retornos.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
-    await supabaseStore.scheduleFollowUp(conversation.id, actor.name, followUpSchema.parse(request.body).followUpAt);
-    return reply.code(204).send();
-  });
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/technical/manual-service-order',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      if (!['admin', 'coordination', 'technical', 'on_call'].includes(actor.role))
+        return reply
+          .code(403)
+          .send({ error: 'Somente a Assistência pode confirmar a abertura manual da OS.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (
+        !conversation ||
+        !['technical', 'on_call'].includes(conversation.destinationArea ?? '') ||
+        !conversation.protocolId
+      )
+        return reply.code(404).send({ error: 'Chamado técnico não encontrado.' });
+      if (
+        conversation.assignedOperator !== actor.name &&
+        !['admin', 'coordination'].includes(actor.role)
+      )
+        return reply.code(409).send({ error: 'Assuma o chamado antes de registrar a OS.' });
+      const { serviceOrderNumber } = manualServiceOrderSchema.parse(request.body);
+      await supabaseStore.registerManualServiceOrder(
+        conversation.id,
+        conversation.protocolId,
+        actor.name,
+        serviceOrderNumber,
+      );
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/operator/conversations/:id/close', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor || actor.role === 'viewer') return reply.code(403).send({ error: 'Seu perfil não pode encerrar atendimentos.' });
-    if (!supabaseStore) return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation || !canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
-    if (conversation.assignedOperator !== actor.name && !['admin', 'coordination'].includes(actor.role)) return reply.code(409).send({ error: 'Assuma a conversa antes de encerrá-la.' });
-    await supabaseStore.closeConversation(conversation.id, actor.name, closeConversationSchema.parse(request.body).resolutionNote);
-    return reply.code(204).send();
-  });
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/transfer',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      if (!['admin', 'coordination'].includes(actor.role))
+        return reply
+          .code(403)
+          .send({ error: 'Somente Administração ou Coordenação pode transferir entre setores.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation) return reply.code(404).send({ error: 'Conversa não encontrada.' });
+      const { destination } = transferSchema.parse(request.body);
+      await supabaseStore.transferConversation(conversation.id, destination, actor.name);
+      operatorEvents.emit('inbox');
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.conversation_transferred',
+      });
+      return reply.code(204).send();
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: unknown }>('/api/operator/conversations/:id/messages', async (request, reply) => {
-    const actor = readOperatorSession(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN);
-    if (!actor)
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore || !outboundSender)
-      return reply.code(503).send({ error: 'Envio pelo WhatsApp ainda não está configurado.' });
-    if (actor.role === 'viewer') return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
-    const conversation = await supabaseStore.getOperatorConversation(request.params.id);
-    if (!conversation) return reply.code(404).send({ error: 'Conversa não encontrada.' });
-    if (!canAccessConversation(actor, conversation.destinationArea)) return reply.code(403).send({ error: 'Seu cargo não pode acessar esta fila.' });
-    if (conversation.assignedOperator !== actor.name)
-      return reply.code(409).send({ error: 'Assuma a conversa antes de responder.' });
-    const { text } = operatorMessageSchema.parse(request.body);
-    const signedText = `${actor.name}: ${text}`;
-    const delivery = await outboundSender.sendText(conversation.contactPhone, signedText);
-    await supabaseStore.saveOutbound(conversation.id, signedText, { messageId: delivery.messageId, status: 'sent' });
-    await supabaseStore.audit('operator.message_sent', actor.name, { conversationId: conversation.id });
-    return reply.code(201).send({ sent: true });
-  });
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/notes',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor || actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil não pode adicionar notas.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      await supabaseStore.addOperatorNote(
+        conversation.id,
+        actor.name,
+        operatorNoteSchema.parse(request.body).text,
+      );
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.note_added',
+      });
+      operatorEvents.emit('inbox');
+      return reply.code(201).send({ created: true });
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/follow-up',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor || actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil não pode agendar retornos.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      await supabaseStore.scheduleFollowUp(
+        conversation.id,
+        actor.name,
+        followUpSchema.parse(request.body).followUpAt,
+      );
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.follow_up_scheduled',
+      });
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/close',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor || actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil não pode encerrar atendimentos.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      if (
+        conversation.assignedOperator !== actor.name &&
+        !['admin', 'coordination'].includes(actor.role)
+      )
+        return reply.code(409).send({ error: 'Assuma a conversa antes de encerrá-la.' });
+      const { resolutionNote } = closeConversationSchema.parse(request.body);
+      await supabaseStore.closeConversation(conversation.id, actor.name, resolutionNote);
+      const completionMessage = `Seu atendimento${conversation.protocolId ? ` ${conversation.protocolId}` : ''} foi concluído pela equipe Life.\n\nResumo: ${resolutionNote}\n\nA equipe responsável foi informada e o registro foi encerrado. A solução atendeu sua necessidade?`;
+      if (outboundSender) {
+        try {
+          const delivery = outboundSender.sendButtons
+            ? await outboundSender.sendButtons(conversation.contactPhone, completionMessage, [
+                { id: 'satisfaction_resolved', title: 'Sim, resolvido' },
+                { id: 'satisfaction_partial', title: 'Ainda preciso de ajuda' },
+              ])
+            : await outboundSender.sendText(
+                conversation.contactPhone,
+                `${completionMessage}\n\nResponda REABRIR se ainda precisar de ajuda.`,
+              );
+          await supabaseStore.saveOutbound(conversation.id, completionMessage, {
+            messageId: delivery.messageId,
+            status: 'sent',
+          });
+        } catch {
+          await supabaseStore.audit('conversation.close_notification_failed', actor.name, {
+            conversationId: conversation.id,
+          });
+        }
+      }
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.conversation_closed',
+      });
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/messages',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore || !outboundSender)
+        return reply.code(503).send({ error: 'Envio pelo WhatsApp ainda não está configurado.' });
+      if (actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation) return reply.code(404).send({ error: 'Conversa não encontrada.' });
+      if (!canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta fila.' });
+      if (conversation.assignedOperator !== actor.name)
+        return reply.code(409).send({ error: 'Assuma a conversa antes de responder.' });
+      const { text } = operatorMessageSchema.parse(request.body);
+      const signedText = `${actor.name}: ${text}`;
+      const delivery = await outboundSender.sendText(conversation.contactPhone, signedText);
+      await supabaseStore.saveOutbound(conversation.id, signedText, {
+        messageId: delivery.messageId,
+        status: 'sent',
+      });
+      await supabaseStore.audit('operator.message_sent', actor.name, {
+        conversationId: conversation.id,
+      });
+      operatorEvents.emit('inbox');
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.message_sent',
+      });
+      return reply.code(201).send({ sent: true });
+    },
+  );
 
   app.get<{
     Querystring: { 'hub.mode'?: string; 'hub.verify_token'?: string; 'hub.challenge'?: string };
@@ -648,6 +1172,58 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
         return reply.code(401).send({ error: 'Assinatura do webhook inválida.' });
       }
       const messages = incomingMessages(request.body);
+      const deliveryStatuses = incomingDeliveryStatuses(request.body);
+      if (supabaseStore && deliveryStatuses.length) {
+        await Promise.allSettled(
+          deliveryStatuses.map((delivery) => {
+            const status = ['sent', 'delivered', 'read', 'failed'].includes(delivery.status)
+              ? (delivery.status as 'sent' | 'delivered' | 'read' | 'failed')
+              : 'failed';
+            const error = delivery.errors
+              ?.map(
+                (item) => item.details ?? item.title ?? (item.code ? `Código ${item.code}` : ''),
+              )
+              .filter(Boolean)
+              .join(' · ');
+            return supabaseStore.updateMetaDeliveryStatus(delivery.id, status, error);
+          }),
+        );
+      }
+      for (const message of messages) {
+        logCorrelation(app, {
+          requestId: request.id,
+          metaMessageId: message.id,
+          action: 'webhook.message_received',
+        });
+      }
+      if (persistedMenuService && supabaseStore) {
+        try {
+          const enqueued = await supabaseStore.enqueueWebhookMessages(messages);
+          scheduleWebhookDrain();
+          return reply.code(200).send({
+            received: true,
+            queued: enqueued,
+            duplicates: Math.max(0, messages.length - enqueued),
+            statuses: deliveryStatuses.length,
+          });
+        } catch (error) {
+          // Uma indisponibilidade momentânea do Data API não pode travar o
+          // webhook por 10s nem fazer a Meta reenviar a mesma mensagem.
+          // Processa localmente como fallback; o acceptInbound continua
+          // protegendo contra duplicidade quando o serviço voltar.
+          app.log.error({ err: error }, 'webhook_queue_unavailable_using_fallback');
+          const result = await persistedMenuService.process(messages);
+          if (result.processed > 0) operatorEvents.emit('inbox');
+          return reply.code(200).send({
+            received: true,
+            queued: 0,
+            processed: result.processed,
+            duplicates: result.duplicates,
+            fallback: true,
+            statuses: deliveryStatuses.length,
+          });
+        }
+      }
       if (persistedMenuService) {
         const result = await persistedMenuService.process(messages);
         if (result.processed > 0) operatorEvents.emit('inbox');
@@ -656,6 +1232,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
           processed: result.processed,
           duplicates: result.duplicates,
           responses: result.responses,
+          statuses: deliveryStatuses.length,
         });
       }
       const result = webhookProcessor.process(messages);
@@ -663,7 +1240,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
         menuService.handle(message.from, message.text),
       );
       if (outboundSender) {
-        await Promise.allSettled(responses.map((response) => outboundSender.sendText(response.to, response.text)));
+        await Promise.allSettled(
+          responses.map((response) => outboundSender.sendText(response.to, response.text)),
+        );
       }
       if (result.processed > 0) operatorEvents.emit('inbox');
       return reply.code(200).send({
@@ -671,6 +1250,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
         processed: result.processed,
         duplicates: result.duplicates,
         responses,
+        statuses: deliveryStatuses.length,
       });
     },
   );
@@ -699,6 +1279,16 @@ function incomingMessages(body: unknown): IncomingMessage[] {
   )
     throw new Error('Payload do webhook Meta inválido.');
   return normalizeMetaWebhook(body as Parameters<typeof normalizeMetaWebhook>[0]);
+}
+
+function incomingDeliveryStatuses(body: unknown) {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    (body as { object?: unknown }).object !== 'whatsapp_business_account'
+  )
+    return [];
+  return normalizeMetaDeliveryStatuses(body as Parameters<typeof normalizeMetaDeliveryStatuses>[0]);
 }
 
 function authorizeDashboard(
@@ -736,24 +1326,52 @@ function publicUser(user: AppUser): Omit<AppUser, 'passwordHash'> {
 }
 
 function signSession(user: AppUser, secret: string): string {
-  const payload = Buffer.from(JSON.stringify({ id: user.id, name: user.name, role: user.role, area: user.area, exp: Date.now() + 43_200_000 })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      area: user.area,
+      exp: Date.now() + 43_200_000,
+    }),
+  ).toString('base64url');
   const signature = createHmac('sha256', secret).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }
 
-function readOperatorSession(authorization: string | undefined, secret: string | undefined): { id: string; name: string; role: AppRole; area: AppUser['area'] } | undefined {
+function readOperatorSession(
+  authorization: string | undefined,
+  secret: string | undefined,
+): { id: string; name: string; role: AppRole; area: AppUser['area'] } | undefined {
   if (!secret || !authorization?.startsWith('Bearer ')) return undefined;
   const [payload, signature] = authorization.slice(7).split('.');
   if (!payload || !signature) return undefined;
   const expected = createHmac('sha256', secret).update(payload).digest('base64url');
   const actual = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expected);
-  if (actual.length !== expectedBuffer.length || !timingSafeEqual(actual, expectedBuffer)) return undefined;
+  if (actual.length !== expectedBuffer.length || !timingSafeEqual(actual, expectedBuffer))
+    return undefined;
   try {
-    const value = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { id?: string; name?: string; role?: AppRole; area?: AppUser['area']; exp?: number };
-    if (!value.id || !value.name || !value.role || !value.area || !value.exp || value.exp < Date.now()) return undefined;
+    const value = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+      id?: string;
+      name?: string;
+      role?: AppRole;
+      area?: AppUser['area'];
+      exp?: number;
+    };
+    if (
+      !value.id ||
+      !value.name ||
+      !value.role ||
+      !value.area ||
+      !value.exp ||
+      value.exp < Date.now()
+    )
+      return undefined;
     return { id: value.id, name: value.name, role: value.role, area: value.area };
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
 
 function visibleAreas(actor: { role: AppRole; area: AppUser['area'] }): string[] | undefined {
@@ -762,18 +1380,42 @@ function visibleAreas(actor: { role: AppRole; area: AppUser['area'] }): string[]
   return [actor.area];
 }
 
-function canAccessConversation(actor: { role: AppRole; area: AppUser['area'] }, destinationArea: string | null | undefined): boolean {
+function canAccessConversation(
+  actor: { role: AppRole; area: AppUser['area'] },
+  destinationArea: string | null | undefined,
+): boolean {
   const areas = visibleAreas(actor);
   return !areas || Boolean(destinationArea && areas.includes(destinationArea));
 }
 
-async function sendOperationalAlertEmail(created: number, supabaseStore: SupabaseConversationStore, store: OperationalConfigurationStore | undefined, environment: Environment): Promise<void> {
-  const recipients = (environment.ALERT_NOTIFICATION_EMAILS ?? '').split(',').map((email) => email.trim()).filter(Boolean);
+async function sendOperationalAlertEmail(
+  created: number,
+  supabaseStore: SupabaseConversationStore,
+  store: OperationalConfigurationStore | undefined,
+  environment: Environment,
+): Promise<void> {
+  const recipients = (environment.ALERT_NOTIFICATION_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim())
+    .filter(Boolean);
   if (!created || !recipients.length || !store || !environment.SMTP_PASSWORD) return;
   const configuration = await smtpConfigurationFromSettings(store, environment.SMTP_PASSWORD);
   if (!configuration) return;
-  const alerts = (await supabaseStore.listOperationalAlerts()).filter((alert) => alert.status === 'open').slice(0, 8);
+  const alerts = (await supabaseStore.listOperationalAlerts())
+    .filter((alert) => alert.status === 'open')
+    .slice(0, 8);
   const text = alerts.map((alert) => `• ${alert.title}: ${alert.detail}`).join('\n');
-  await Promise.allSettled(recipients.map((to) => new SmtpEmailSender(configuration).send({ to, subject: 'Ação necessária · Central Life', text })));
-  await supabaseStore.audit('operational.alert_notified', 'system', { recipients: recipients.length, alerts: alerts.length });
+  await Promise.allSettled(
+    recipients.map((to) =>
+      new SmtpEmailSender(configuration).send({
+        to,
+        subject: 'Ação necessária · Central Life',
+        text,
+      }),
+    ),
+  );
+  await supabaseStore.audit('operational.alert_notified', 'system', {
+    recipients: recipients.length,
+    alerts: alerts.length,
+  });
 }
