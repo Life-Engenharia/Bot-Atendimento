@@ -24,6 +24,7 @@ export type StoredConversation = {
     selectingEditField?: boolean;
     editingTechnicalField?: string;
     selectingTechnicalEditField?: boolean;
+    selectingTechnicalEditMore?: boolean;
     initialIntent?: string;
     suggestedRoute?: 'commercial' | 'technical';
     impactConfirmation?: string;
@@ -97,7 +98,7 @@ export type OperationalAlert = {
 export type RetentionResult = { conversationsAnonymized: number; attachmentsDeleted: number };
 
 type Contact = { id: string };
-type StoredMessage = { id: string };
+type StoredMessage = { id: string; conversation_id?: string | null; processed_at?: string | null };
 export type WebhookJob = { id: string; message: IncomingMessage; attempts: number };
 
 export type CommercialSyncJob = {
@@ -158,14 +159,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   constructor(
     private readonly url: string,
     private readonly serviceKey: string,
-  ) {}
+  ) { }
 
   async acceptInbound(
     message: IncomingMessage,
   ): Promise<
     { conversation: StoredConversation; reopened: boolean; surveyResponse?: 'resolved' } | undefined
   > {
-    const inserted = await this.request<StoredMessage[]>(
+    let inserted = await this.request<StoredMessage[]>(
       'messages',
       {
         method: 'POST',
@@ -178,7 +179,19 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [200, 201],
     );
-    if (!inserted) return undefined;
+    if (!inserted?.[0]) {
+      // A mensagem pode já ter sido gravada por uma tentativa que caiu antes
+      // de concluir o turno. Só descartamos duplicatas já processadas.
+      const existing = await this.request<StoredMessage[]>(
+        `messages?meta_message_id=eq.${encodeURIComponent(message.id)}&select=id,conversation_id,processed_at`,
+        {},
+        [200],
+      );
+      const prior = existing[0];
+      if (!prior) throw new Error('Mensagem duplicada não foi localizada para recuperação.');
+      if (prior.processed_at) return undefined;
+      inserted = [prior];
+    }
 
     const contact = await this.upsertContact(message.from);
     const normalizedReply = (message.text ?? '').trim().toLowerCase();
@@ -191,14 +204,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       isReopenRequest(message.text ?? message.interactiveId) ||
       message.interactiveId === 'satisfaction_partial' ||
       normalizedReply === '2';
-    const conversation = await this.findOrCreateConversation(
-      contact.id,
-      reopened,
-      surveyCandidate,
-    );
+    let conversation: StoredConversation;
+    if (inserted[0].conversation_id) {
+      const recovered = await this.request<Array<StoredConversation & { assigned_operator?: string | null }>>(
+        `conversations?id=eq.${encodeURIComponent(inserted[0].conversation_id)}&select=id,state,route,context,assigned_operator`,
+        {},
+        [200],
+      );
+      conversation = recovered[0]
+        ? { ...recovered[0], assignedOperator: recovered[0].assigned_operator ?? null }
+        : await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
+    } else {
+      conversation = await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
+    }
     const surveyResponse =
       conversation.state === 'closed' &&
-      (message.interactiveId === 'satisfaction_resolved' || normalizedReply === '1')
+        (message.interactiveId === 'satisfaction_resolved' || normalizedReply === '1')
         ? 'resolved'
         : undefined;
     await this.request(
@@ -233,9 +254,39 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         body: JSON.stringify({
           state: conversation.state,
           route: conversation.route,
+          destination_area: conversation.route,
           context: conversation.context,
         }),
       },
+      [204],
+    );
+  }
+
+  /** Persiste a transição e o checkpoint da mensagem na mesma transação SQL. */
+  async saveConversationAndMarkInbound(
+    conversation: StoredConversation,
+    metaMessageId: string,
+  ): Promise<void> {
+    await this.request(
+      'rpc/persist_conversation_turn',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          p_conversation_id: conversation.id,
+          p_state: conversation.state,
+          p_route: conversation.route,
+          p_context: conversation.context,
+          p_meta_message_id: metaMessageId,
+        }),
+      },
+      [200, 204],
+    );
+  }
+
+  async markInboundProcessed(metaMessageId: string): Promise<void> {
+    await this.request(
+      `messages?meta_message_id=eq.${encodeURIComponent(metaMessageId)}&processed_at=is.null`,
+      { method: 'PATCH', body: JSON.stringify({ processed_at: new Date().toISOString() }) },
       [204],
     );
   }
@@ -246,23 +297,17 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     delivery?: { messageId: string; status: 'sent' | 'failed' },
   ): Promise<void> {
     await this.request(
-      'messages',
+      'rpc/persist_outbound_message',
       {
         method: 'POST',
         body: JSON.stringify({
-          meta_message_id: delivery?.messageId ?? `local-outbound:${crypto.randomUUID()}`,
-          conversation_id: conversationId,
-          direction: 'outbound',
-          content: text,
-          delivery_status: delivery?.status ?? 'pending_meta_connection',
+          p_conversation_id: conversationId,
+          p_meta_message_id: delivery?.messageId ?? `local-outbound:${crypto.randomUUID()}`,
+          p_content: text,
+          p_status: delivery?.status ?? 'pending_meta_connection',
         }),
       },
-      [201],
-    );
-    await this.request(
-      `conversations?id=eq.${encodeURIComponent(conversationId)}`,
-      { method: 'PATCH', body: JSON.stringify({ updated_at: new Date().toISOString() }) },
-      [204],
+      [200, 204],
     );
   }
 
@@ -272,29 +317,24 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     status: 'sent' | 'delivered' | 'read' | 'failed',
     error?: string,
   ): Promise<boolean> {
-    const rows = await this.request<Array<{ conversation_id: string | null }>>(
-      `messages?meta_message_id=eq.${encodeURIComponent(metaMessageId)}&select=conversation_id`,
-      {},
-      [200],
-    );
-    if (!rows[0]) return false;
-    await this.request(
-      `messages?meta_message_id=eq.${encodeURIComponent(metaMessageId)}`,
+    const recorded = await this.request<boolean>(
+      'rpc/record_meta_delivery_status',
       {
-        method: 'PATCH',
+        method: 'POST',
         body: JSON.stringify({
-          delivery_status: error ? `${status}: ${error}`.slice(0, 500) : status,
+          p_meta_message_id: metaMessageId,
+          p_status: status,
+          p_error: error?.slice(0, 450) ?? null,
         }),
       },
-      [204],
+      [200],
     );
     await this.audit('meta.delivery_status_updated', 'meta', {
       metaMessageId,
       status,
       ...(error ? { error } : {}),
-      ...(rows[0].conversation_id ? { conversationId: rows[0].conversation_id } : {}),
     });
-    return true;
+    return recorded ?? false;
   }
 
   /** Fila durável: o webhook confirma à Meta após persistir, não após processar IA/mídia. */
@@ -352,7 +392,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         body: JSON.stringify({
           status: permanentlyFailed ? 'failed' : 'queued',
           last_error: message.slice(0, 1000),
-          available_at: new Date(Date.now() + Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1))).toISOString(),
+          available_at: new Date(Date.now() + Math.min(5 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1))).toISOString(),
         }),
       },
       [204],
@@ -609,12 +649,12 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         (item) =>
           item.state !== 'closed' &&
           (now - new Date(item.updated_at).getTime()) / 60_000 >
-            slaMinutes(item.protocols?.suggested_priority),
+          slaMinutes(item.protocols?.suggested_priority),
       ).length,
       averageResolutionMinutes: resolutionMinutes.length
         ? Math.round(
-            resolutionMinutes.reduce((total, value) => total + value, 0) / resolutionMinutes.length,
-          )
+          resolutionMinutes.reduce((total, value) => total + value, 0) / resolutionMinutes.length,
+        )
         : null,
       members: users.map(({ passwordHash: _passwordHash, ...user }) => user),
       recentActivity: audit.map((event) => ({
@@ -848,40 +888,53 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     );
   }
 
-  async createCommercialProtocol(conversation: StoredConversation): Promise<string> {
+  async createCommercialProtocol(
+    conversation: StoredConversation,
+    sourceMessageId: string,
+  ): Promise<string> {
     const context = conversation.context;
     if (!context.service || !context.location || !context.timeline || !context.need)
       throw new Error('A solicitação comercial não possui todos os dados obrigatórios.');
-    const reference = `LFE-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-    const protocols = await this.request<Array<{ id: string }>>(
-      'protocols',
-      {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ reference, type: 'commercial', status: 'new' }),
-      },
-      [201],
+    const technicalDetails =
+      context.service === 'Assistência avulsa' && context.equipment
+        ? [
+            'Dados técnicos já informados:',
+            `Equipamento: ${context.equipment}`,
+            `Fabricante/modelo: ${context.manufacturerModel ?? 'não informado'}`,
+            `Patrimônio/série: ${context.assetIdentifier ?? 'não informado'}`,
+            `Sintoma: ${context.symptom ?? 'não informado'}`,
+            `Alarme: ${context.alarm ?? 'não informado'}`,
+            `Início/frequência: ${context.startedFrequency ?? 'não informado'}`,
+            `Impacto: ${context.operationalImpact ?? 'não informado'}`,
+            `Contingência: ${context.contingency ?? 'não informado'}`,
+            `Risco: ${context.reportedRisk ?? 'não informado'}`,
+          ].join(' · ')
+        : '';
+    const requestNeed = [context.need, technicalDetails].filter(Boolean).join('\n\n').slice(0, 1000);
+    const { id: protocolId, reference } = await this.getOrCreateProtocol(
+      'commercial',
+      sourceMessageId,
     );
-    const protocolId = protocols[0]?.id;
-    if (!protocolId) throw new Error('O Supabase não retornou o protocolo comercial criado.');
     await this.request(
-      'commercial_requests',
+      'commercial_requests?on_conflict=protocol_id',
       {
         method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({
           protocol_id: protocolId,
           service: context.service,
           location: context.location,
           timeline: context.timeline,
-          need: context.need,
+          need: requestNeed,
         }),
       },
-      [201],
+      [201, 204],
     );
     await this.request(
-      'commercial_sync_jobs',
+      'commercial_sync_jobs?on_conflict=protocol_id',
       {
         method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({
           protocol_id: protocolId,
           payload: {
@@ -894,11 +947,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
             email: context.email,
             location: context.location,
             timeline: context.timeline,
-            need: context.need,
+            need: requestNeed,
           },
         }),
       },
-      [201],
+      [201, 204],
     );
     const conversations = await this.request<Array<{ contact_id: string }>>(
       `conversations?id=eq.${encodeURIComponent(conversation.id)}&select=contact_id`,
@@ -949,6 +1002,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     conversation: StoredConversation,
     priority: 'P1' | 'P2' | 'P3' | 'P4',
     reason: string,
+    sourceMessageId: string,
   ): Promise<string> {
     const context = conversation.context;
     const required = [
@@ -962,27 +1016,16 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     ] as const;
     if (required.some((field) => !context[field]))
       throw new Error('A pré-triagem técnica ainda está incompleta.');
-    const reference = `LFE-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-    const protocols = await this.request<Array<{ id: string }>>(
-      'protocols',
-      {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({
-          reference,
-          type: 'technical',
-          status: 'new',
-          suggested_priority: priority,
-        }),
-      },
-      [201],
+    const { id: protocolId, reference } = await this.getOrCreateProtocol(
+      'technical',
+      sourceMessageId,
+      priority,
     );
-    const protocolId = protocols[0]?.id;
-    if (!protocolId) throw new Error('O Supabase não retornou o protocolo técnico criado.');
     await this.request(
-      'technical_tickets',
+      'technical_tickets?on_conflict=protocol_id',
       {
         method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({
           protocol_id: protocolId,
           contract_reference: context.contractReference ?? null,
@@ -998,7 +1041,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
           priority_reason: reason,
         }),
       },
-      [201],
+      [201, 204],
     );
     const destination = priority === 'P1' || priority === 'P2' ? 'on_call' : 'technical';
     const assignee = await this.findEligibleUser(destination);
@@ -1040,6 +1083,43 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       assignedUserId: assignee?.id,
     });
     return reference;
+  }
+
+  private async getOrCreateProtocol(
+    type: 'commercial' | 'technical',
+    sourceMessageId: string,
+    priority?: 'P1' | 'P2' | 'P3' | 'P4',
+  ): Promise<{ id: string; reference: string }> {
+    const find = () =>
+      this.request<Array<{ id: string; reference: string; type: 'commercial' | 'technical' }>>(
+        `protocols?source_message_id=eq.${encodeURIComponent(sourceMessageId)}&select=id,reference,type`,
+        {},
+        [200],
+      );
+    let existing = await find();
+    if (!existing.length) {
+      const reference = `LFE-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+      const created = await this.request<Array<{ id: string; reference: string }>>(
+        'protocols',
+        {
+          method: 'POST',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({
+            reference,
+            type,
+            status: 'new',
+            source_message_id: sourceMessageId,
+            ...(priority ? { suggested_priority: priority } : {}),
+          }),
+        },
+        [201],
+      );
+      existing = created?.length ? [{ ...created[0], type }] : await find();
+    }
+    const protocol = existing[0];
+    if (!protocol || protocol.type !== type)
+      throw new Error('Não foi possível recuperar o protocolo desta confirmação.');
+    return { id: protocol.id, reference: protocol.reference };
   }
 
   async listPendingCommercialSyncJobs(limit = 10): Promise<CommercialSyncJob[]> {
@@ -1304,14 +1384,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const row = users[0];
     return row
       ? {
-          id: row.id,
-          name: row.name,
-          email: row.email,
-          passwordHash: row.password_hash,
-          role: row.role,
-          area: row.area,
-          active: row.active,
-        }
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        passwordHash: row.password_hash,
+        role: row.role,
+        area: row.area,
+        active: row.active,
+      }
       : undefined;
   }
 
@@ -1339,7 +1419,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         contacts: { phone_e164: string; name: string | null } | null;
       }>
     >(
-      `conversations?state=in.(${includeClosed ? 'queued,human,closed' : 'queued,human'})${areaFilter}&select=id,state,route,assigned_operator,destination_area,handoff_reason,updated_at,follow_up_at,contacts(phone_e164,name),protocols(id,suggested_priority)&order=updated_at.desc`,
+      `conversations?state=in.(${includeClosed ? 'started,consent,route,collecting,review,queued,human,closed' : 'started,consent,route,collecting,review,queued,human'})${areaFilter}&select=id,state,route,assigned_operator,destination_area,handoff_reason,updated_at,follow_up_at,contacts(phone_e164,name),protocols(id,suggested_priority)&order=updated_at.desc`,
       {},
       [200],
     );
@@ -1484,7 +1564,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
 
   async claimConversation(id: string, operator: string): Promise<boolean> {
     const claimed = await this.request<Array<{ id: string }>>(
-      `conversations?id=eq.${encodeURIComponent(id)}&assigned_operator=is.null&state=in.(queued,human)`,
+      `conversations?id=eq.${encodeURIComponent(id)}&assigned_operator=is.null&state=in.(started,consent,route,collecting,review,queued,human)`,
       {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
@@ -1506,7 +1586,12 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ assigned_operator: null, assigned_at: null, state: 'queued' }),
+        body: JSON.stringify({
+          assigned_operator: null,
+          assigned_at: null,
+          follow_up_at: null,
+          state: 'queued',
+        }),
       },
       [200],
     );
@@ -1524,13 +1609,17 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     await this.audit('conversation.note_added', author, { conversationId: id });
   }
 
-  async scheduleFollowUp(id: string, actor: string, followUpAt: string): Promise<void> {
+  async scheduleFollowUp(id: string, actor: string, followUpAt: string | null): Promise<void> {
     await this.request(
       `conversations?id=eq.${encodeURIComponent(id)}`,
       { method: 'PATCH', body: JSON.stringify({ follow_up_at: followUpAt }) },
       [204],
     );
-    await this.audit('conversation.follow_up_scheduled', actor, { conversationId: id, followUpAt });
+    await this.audit(
+      followUpAt ? 'conversation.follow_up_scheduled' : 'conversation.follow_up_cancelled',
+      actor,
+      { conversationId: id, followUpAt },
+    );
   }
 
   async closeConversation(id: string, actor: string, resolutionNote: string): Promise<void> {
