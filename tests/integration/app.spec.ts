@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createHmac } from 'node:crypto';
+import { createHmac, scryptSync } from 'node:crypto';
 import { buildApp } from '../../src/app.js';
 import type {
   OperationalConfigurationStore,
@@ -191,7 +191,13 @@ describe('application foundation', () => {
       entry: [
         {
           changes: [
-            { value: { messages: [{ id: 'wamid.official-1', from: '5511999999999', text: { body: 'Olá' } }] } },
+            {
+              value: {
+                messages: [
+                  { id: 'wamid.official-1', from: '5511999999999', text: { body: 'Olá' } },
+                ],
+              },
+            },
           ],
         },
       ],
@@ -221,7 +227,9 @@ describe('application foundation', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ processed: 1, responses: [{ state: 'CONSENT' }] });
-    expect(sent).toEqual([{ to: '5511999999999', body: expect.stringContaining('assistente virtual') }]);
+    expect(sent).toEqual([
+      { to: '5511999999999', body: expect.stringContaining('assistente virtual') },
+    ]);
     await app.close();
   });
 
@@ -274,6 +282,83 @@ describe('application foundation', () => {
     });
 
     expect(response.statusCode).toBe(413);
+    await app.close();
+  });
+
+  it('protects operator actions by role and records a claim through the operator API', async () => {
+    const passwordHash = `salt:${scryptSync('correct-password', 'salt', 64).toString('hex')}`;
+    const conversation = {
+      id: 'conversation-1',
+      state: 'queued' as const,
+      route: 'commercial' as const,
+      assignedOperator: null,
+      contactPhone: '5511999999999',
+      contactName: 'Contato de teste',
+      updatedAt: new Date().toISOString(),
+      destinationArea: 'commercial',
+      handoffReason: null,
+      suggestedPriority: 'P3' as const,
+      followUpAt: null,
+      context: {},
+      messages: [],
+      notes: [],
+      attachments: [],
+    };
+    let claimedBy: string | undefined;
+    const store = {
+      findUserByEmail: async () => ({
+        id: 'operator-1',
+        name: 'Ana Operadora',
+        email: 'ana@life.test',
+        passwordHash,
+        role: 'commercial' as const,
+        area: 'commercial' as const,
+        active: true,
+      }),
+      listOperatorConversations: async () => [conversation],
+      getOperatorConversation: async () => conversation,
+      claimConversation: async (_id: string, operator: string) => {
+        claimedBy = operator;
+        return true;
+      },
+    };
+    const app = buildApp({
+      environment: {
+        NODE_ENV: 'test',
+        PORT: 3000,
+        WHATSAPP_VERIFY_TOKEN: 'test-token-123',
+        ADMIN_DASHBOARD_TOKEN: 'dashboard-token-with-at-least-24-characters',
+      },
+      supabaseStore: store as never,
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/operator/login',
+      payload: { email: 'ana@life.test', password: 'correct-password' },
+    });
+    const token = login.json().token as string;
+    const list = await app.inject({
+      method: 'GET',
+      url: '/api/operator/conversations',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const claim = await app.inject({
+      method: 'POST',
+      url: '/api/operator/conversations/conversation-1/claim',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const transfer = await app.inject({
+      method: 'POST',
+      url: '/api/operator/conversations/conversation-1/transfer',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { destination: 'technical' },
+    });
+
+    expect(login.statusCode).toBe(200);
+    expect(list.json()).toHaveLength(1);
+    expect(claim.statusCode).toBe(204);
+    expect(claimedBy).toBe('Ana Operadora');
+    expect(transfer.statusCode).toBe(403);
     await app.close();
   });
 });

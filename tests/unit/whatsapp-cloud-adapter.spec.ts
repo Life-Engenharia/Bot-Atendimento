@@ -38,19 +38,58 @@ describe('WhatsApp Cloud adapter', () => {
 
   it('normalizes image, audio, video and document references without exposing binary data', () => {
     const messages = normalizeMetaWebhook({
-      entry: [{ changes: [{ value: { messages: [{
-        id: 'wamid.media', from: '5511999999999',
-        image: { id: 'media-image', mime_type: 'image/jpeg', caption: 'Painel do chiller' },
-        document: { id: 'media-document', mime_type: 'application/pdf', filename: 'laudo.pdf' },
-      }] } }] }],
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                messages: [
+                  {
+                    id: 'wamid.media',
+                    from: '5511999999999',
+                    image: {
+                      id: 'media-image',
+                      mime_type: 'image/jpeg',
+                      caption: 'Painel do chiller',
+                    },
+                    document: {
+                      id: 'media-document',
+                      mime_type: 'application/pdf',
+                      filename: 'laudo.pdf',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
     });
 
-    expect(messages).toEqual([{
-      id: 'wamid.media', from: '5511999999999', text: 'Painel do chiller',
-      media: [
-        { id: 'media-image', type: 'image', mimeType: 'image/jpeg', caption: 'Painel do chiller', sha256: undefined, fileName: undefined },
-        { id: 'media-document', type: 'document', mimeType: 'application/pdf', fileName: 'laudo.pdf', caption: undefined, sha256: undefined },
-      ],
-    }]);
+    expect(messages).toEqual([
+      {
+        id: 'wamid.media',
+        from: '5511999999999',
+        text: 'Painel do chiller',
+        media: [
+          {
+            id: 'media-image',
+            type: 'image',
+            mimeType: 'image/jpeg',
+            caption: 'Painel do chiller',
+            sha256: undefined,
+            fileName: undefined,
+          },
+          {
+            id: 'media-document',
+            type: 'document',
+            mimeType: 'application/pdf',
+            fileName: 'laudo.pdf',
+            caption: undefined,
+            sha256: undefined,
+          },
+        ],
+      },
+    ]);
   });
 });

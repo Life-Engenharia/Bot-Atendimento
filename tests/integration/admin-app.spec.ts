@@ -20,7 +20,10 @@ class ConfigurationStore implements OperationalConfigurationStore {
     key: OperationalSetting['key'],
     values: Record<string, string>[],
   ): Promise<void> {
-    this.values = [...this.values.filter((item) => item.key !== key), ...values.map((value) => ({ key, value }))];
+    this.values = [
+      ...this.values.filter((item) => item.key !== key),
+      ...values.map((value) => ({ key, value })),
+    ];
   }
 }
 
@@ -97,7 +100,12 @@ describe('admin app', () => {
     ).resolves.toMatchObject({ statusCode: 204 });
 
     await expect(
-      app.inject({ method: 'POST', url: '/api/admin/email/test', headers, payload: { to: 'teste@life.eng.br' } }),
+      app.inject({
+        method: 'POST',
+        url: '/api/admin/email/test',
+        headers,
+        payload: { to: 'teste@life.eng.br' },
+      }),
     ).resolves.toMatchObject({ statusCode: 503 });
 
     expect(store.values).toEqual([

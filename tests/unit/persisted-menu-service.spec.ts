@@ -71,9 +71,15 @@ describe('persisted menu service', () => {
       const store = new FakeStore();
       const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
 
-      const first = await service.process([{ id: `wamid-intent-${index}-1`, from: '+5511999999999', text: initialMessage }]);
-      const consent = await service.process([{ id: `wamid-intent-${index}-2`, from: '+5511999999999', text: '1' }]);
-      const accepted = await service.process([{ id: `wamid-intent-${index}-3`, from: '+5511999999999', text: 'sim' }]);
+      const first = await service.process([
+        { id: `wamid-intent-${index}-1`, from: '+5511999999999', text: initialMessage },
+      ]);
+      const consent = await service.process([
+        { id: `wamid-intent-${index}-2`, from: '+5511999999999', text: '1' },
+      ]);
+      const accepted = await service.process([
+        { id: `wamid-intent-${index}-3`, from: '+5511999999999', text: 'sim' },
+      ]);
 
       expect(first.responses[0].text).toContain('apoio técnico');
       expect(consent.responses[0].text).toContain('assistência técnica');
@@ -155,7 +161,10 @@ describe('persisted menu service', () => {
       { id: 'wamid-no-contract', from: '+5511999999999', text: 'não tenho contrato' },
     ]);
 
-    expect(store.conversation).toMatchObject({ route: 'commercial', context: { service: 'Assistência avulsa', location: 'Unidade Norte' } });
+    expect(store.conversation).toMatchObject({
+      route: 'commercial',
+      context: { service: 'Assistência avulsa', location: 'Unidade Norte' },
+    });
     expect(result.responses[0].text).toContain('assistência avulsa');
     expect(store.audits).toContain('technical.assistance_avulsa_routed');
   });
@@ -167,28 +176,48 @@ describe('persisted menu service', () => {
       state: 'collecting',
       route: 'technical',
       context: {
-        contactName: 'Ana', company: 'Hospital Alfa', location: 'UTI', contractReference: '123',
-        equipment: 'Chiller', manufacturerModel: 'Modelo X', assetIdentifier: 'A-1', symptom: 'apagou de vez',
-        alarm: 'E3', startedFrequency: 'Hoje', operationalImpact: 'parado totalmente', contingency: 'não há alternativa',
+        contactName: 'Ana',
+        company: 'Hospital Alfa',
+        location: 'UTI',
+        contractReference: '123',
+        equipment: 'Chiller',
+        manufacturerModel: 'Modelo X',
+        assetIdentifier: 'A-1',
+        symptom: 'apagou de vez',
+        alarm: 'E3',
+        startedFrequency: 'Hoje',
+        operationalImpact: 'parado totalmente',
+        contingency: 'não há alternativa',
       },
     };
     const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
 
-    const review = await service.process([{ id: 'wamid-tech-review', from: '+5511999999999', text: 'há risco para pessoas' }]);
+    const review = await service.process([
+      { id: 'wamid-tech-review', from: '+5511999999999', text: 'há risco para pessoas' },
+    ]);
     expect(review.responses[0].text).toContain('Prioridade sugerida: P1');
     expect(store.conversation.state).toBe('review');
 
-    const confirmation = await service.process([{ id: 'wamid-tech-confirm', from: '+5511999999999', text: 'CONFIRMAR' }]);
+    const confirmation = await service.process([
+      { id: 'wamid-tech-confirm', from: '+5511999999999', text: 'CONFIRMAR' },
+    ]);
     expect(confirmation.responses[0].text).toContain('LFE-TEST-TECH-0001');
     expect(store.conversation.state).toBe('queued');
   });
 
   it('responds warmly after a queued customer thanks the team', async () => {
     const store = new FakeStore();
-    store.conversation = { ...store.conversation, state: 'queued', route: 'commercial', context: { service: 'PMOC' } };
+    store.conversation = {
+      ...store.conversation,
+      state: 'queued',
+      route: 'commercial',
+      context: { service: 'PMOC' },
+    };
     const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
 
-    const result = await service.process([{ id: 'wamid-thanks', from: '+5511999999999', text: 'Muito obrigado!' }]);
+    const result = await service.process([
+      { id: 'wamid-thanks', from: '+5511999999999', text: 'Muito obrigado!' },
+    ]);
 
     expect(result.responses[0].text).toContain('Por nada');
   });

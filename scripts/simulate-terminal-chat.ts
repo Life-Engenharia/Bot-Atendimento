@@ -34,9 +34,15 @@ class TerminalConversationStore {
     };
   }
 
-  async saveOutbound() { /* A resposta já é exibida no terminal. */ }
-  async audit() { /* A auditoria é intencionalmente local nesta simulação. */ }
-  async recordHandoff() { /* A fila humana é simulada pelo estado da conversa. */ }
+  async saveOutbound() {
+    /* A resposta já é exibida no terminal. */
+  }
+  async audit() {
+    /* A auditoria é intencionalmente local nesta simulação. */
+  }
+  async recordHandoff() {
+    /* A fila humana é simulada pelo estado da conversa. */
+  }
 
   async createCommercialProtocol() {
     this.protocolNumber += 1;
@@ -52,9 +58,10 @@ class TerminalConversationStore {
 if (existsSync('.env.local')) process.loadEnvFile('.env.local');
 const environment = loadEnvironment();
 const store = new TerminalConversationStore();
-const responseRefiner = environment.OPENAI_API_KEY && environment.OPENAI_MODEL
-  ? new OpenAiResponseRefiner(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
-  : undefined;
+const responseRefiner =
+  environment.OPENAI_API_KEY && environment.OPENAI_MODEL
+    ? new OpenAiResponseRefiner(environment.OPENAI_API_KEY, environment.OPENAI_MODEL)
+    : undefined;
 const bot = new PersistedMenuService(
   store as unknown as SupabaseConversationStore,
   undefined,
@@ -69,7 +76,9 @@ const terminal = createInterface({ input, output, terminal: true });
 
 console.log('\nSimulação Life Engenharia — cliente no terminal');
 console.log('Digite como cliente. Use /reiniciar para uma nova conversa ou /sair para encerrar.\n');
-console.log(`Tom assistido por IA: ${responseRefiner ? 'ativo' : 'desativado (configure OPENAI_API_KEY e OPENAI_MODEL)'}\n`);
+console.log(
+  `Tom assistido por IA: ${responseRefiner ? 'ativo' : 'desativado (configure OPENAI_API_KEY e OPENAI_MODEL)'}\n`,
+);
 
 try {
   while (true) {
@@ -77,16 +86,23 @@ try {
     if (!text) continue;
     if (text.toLocaleLowerCase('pt-BR') === '/sair') break;
     if (text.toLocaleLowerCase('pt-BR') === '/reiniciar') {
-      store.conversation = { id: `terminal-${randomUUID()}`, state: 'consent', route: null, context: {} };
+      store.conversation = {
+        id: `terminal-${randomUUID()}`,
+        state: 'consent',
+        route: null,
+        context: {},
+      };
       console.log('Bot: Nova conversa iniciada. Envie uma mensagem para continuar.\n');
       continue;
     }
 
-    const result = await bot.process([{
-      id: `terminal:${sessionId}:${++messageNumber}`,
-      from: phone,
-      text,
-    }]);
+    const result = await bot.process([
+      {
+        id: `terminal:${sessionId}:${++messageNumber}`,
+        from: phone,
+        text,
+      },
+    ]);
     const response = result.responses[0];
     console.log(`\nBot [${response.state}]: ${response.text}\n`);
   }

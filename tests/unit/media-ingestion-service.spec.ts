@@ -7,17 +7,20 @@ describe('MediaIngestionService', () => {
     const saved: unknown[][] = [];
     const audits: string[] = [];
     const store = {
-      saveMediaAttachment: async (...args: unknown[]) => { saved.push(args); },
-      audit: async (event: string) => { audits.push(event); },
+      saveMediaAttachment: async (...args: unknown[]) => {
+        saved.push(args);
+      },
+      audit: async (event: string) => {
+        audits.push(event);
+      },
     } as unknown as SupabaseConversationStore;
     const service = new MediaIngestionService(store, {
       downloadMedia: async () => ({ content: new Uint8Array([1, 2, 3]), mimeType: 'image/png' }),
     });
 
-    await service.ingest(
-      { id: 'conversation-1', state: 'consent', route: null, context: {} },
-      [{ id: 'media-1', type: 'image', mimeType: 'image/jpeg' }],
-    );
+    await service.ingest({ id: 'conversation-1', state: 'consent', route: null, context: {} }, [
+      { id: 'media-1', type: 'image', mimeType: 'image/jpeg' },
+    ]);
 
     expect(saved[0]?.[1]).toMatchObject({ id: 'media-1', type: 'image', mimeType: 'image/png' });
     expect(saved[0]?.[3]).toBe('stored');
@@ -27,15 +30,16 @@ describe('MediaIngestionService', () => {
   it('records a pending item without attempting external download when Meta is not configured', async () => {
     const saved: unknown[][] = [];
     const store = {
-      saveMediaAttachment: async (...args: unknown[]) => { saved.push(args); },
+      saveMediaAttachment: async (...args: unknown[]) => {
+        saved.push(args);
+      },
       audit: async () => undefined,
     } as unknown as SupabaseConversationStore;
     const service = new MediaIngestionService(store);
 
-    await service.ingest(
-      { id: 'conversation-1', state: 'consent', route: null, context: {} },
-      [{ id: 'media-1', type: 'audio' }],
-    );
+    await service.ingest({ id: 'conversation-1', state: 'consent', route: null, context: {} }, [
+      { id: 'media-1', type: 'audio' },
+    ]);
 
     expect(saved[0]?.[3]).toBe('pending_connection');
   });
