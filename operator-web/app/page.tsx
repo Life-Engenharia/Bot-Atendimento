@@ -72,7 +72,9 @@ export default function OperatorPage() {
     [actionKind, setActionKind] = useState<ActionKind>(null),
     [actionValue, setActionValue] = useState(''),
     [actionError, setActionError] = useState(''),
-    [acting, setActing] = useState(false);
+    [acting, setActing] = useState(false),
+    [sending, setSending] = useState(false),
+    [sendError, setSendError] = useState('');
   const load = async () => {
     const rows = await api<Conversation[]>('/api/operator/conversations?includeClosed=true');
     setItems(rows);
@@ -235,14 +237,23 @@ export default function OperatorPage() {
   };
   const send = async (e: FormEvent) => {
     e.preventDefault();
-    if (!selected || !text.trim()) return;
-    await api('/api/operator/conversations/' + selected.id + '/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.trim() }),
-    });
-    setText('');
-    await open(selected.id);
+    if (!selected || !text.trim() || sending) return;
+    const message = text.trim();
+    setSending(true);
+    setSendError('');
+    try {
+      await api('/api/operator/conversations/' + selected.id + '/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message }),
+      });
+      setText('');
+      await open(selected.id);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Não foi possível enviar a mensagem.');
+    } finally {
+      setSending(false);
+    }
   };
   const runAction = async () => {
     if (!selected || !actionKind) return;
@@ -568,8 +579,12 @@ export default function OperatorPage() {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   placeholder="Digite uma mensagem para enviar…"
+                  disabled={sending}
                 />
-                <button className="btn">Enviar</button>
+                <button className="btn" disabled={sending || !text.trim()}>
+                  {sending ? 'Enviando…' : 'Enviar'}
+                </button>
+                {sendError && <small className="form-error">{sendError}</small>}
               </form>
             )}
           </>

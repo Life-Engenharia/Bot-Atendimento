@@ -440,6 +440,12 @@ button {
   resize: none
 }
 
+.composer .form-error {
+  align-self: center;
+  color: #b42318;
+  font-size: .82rem
+}
+
 .empty-workspace {
   margin: auto;
   text-align: center;
