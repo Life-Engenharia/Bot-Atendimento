@@ -452,6 +452,38 @@ button {
   color: var(--muted)
 }
 
+.app-state {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f4f8fa
+}
+
+.state-card {
+  width: min(100%, 460px);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(8, 47, 73, .08)
+}
+
+.state-card h1 { margin: 8px 0; color: var(--ink); font-size: 1.5rem }
+.state-card p:not(.eyebrow) { color: var(--muted); line-height: 1.5 }
+.state-card .btn { margin-top: 16px }
+.state-spinner {
+  display: block;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 18px;
+  border: 3px solid #cfe3ee;
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: operator-spin .8s linear infinite
+}
+@keyframes operator-spin { to { transform: rotate(360deg) } }
+
 @media(max-width:1180px) {
   .app {
     grid-template-columns: 180px minmax(430px, 1fr) minmax(520px, 1.1fr)
