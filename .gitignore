@@ -3,6 +3,8 @@ node_modules/
 dist/
 coverage/
 .turbo/
+.next/
+*.tsbuildinfo
 
 # Ambiente e segredos
 .env
