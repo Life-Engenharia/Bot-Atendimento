@@ -186,6 +186,34 @@ export class PersistedMenuService {
         // A mensagem textual continua sendo enviada mesmo se a imagem falhar.
       }
     }
+    if (text === 'status' || text === 'andamento') {
+      const stateLabel: Record<StoredConversation['state'], string> = {
+        started: 'iniciado',
+        consent: 'aguardando confirmação',
+        route: 'aguardando escolha do atendimento',
+        collecting: 'em triagem',
+        review: 'aguardando confirmação dos dados',
+        queued: 'na fila da equipe',
+        human: 'em atendimento humano',
+        closed: 'concluído',
+      };
+      return this.finish(
+        conversation,
+        message.from,
+        `Status do atendimento: ${stateLabel[conversation.state] ?? 'em andamento'}.`,
+      );
+    }
+    if (text === 'cancelar' || text === 'cancelamento') {
+      conversation.state = 'closed';
+      await this.store.audit('conversation.cancelled_by_customer', 'customer', {
+        phone: message.from,
+      });
+      return this.finish(
+        conversation,
+        message.from,
+        'Tudo bem. O atendimento foi cancelado. Quando precisar, envie uma nova mensagem para iniciar outro atendimento.',
+      );
+    }
     if (['reiniciar', 'recomeçar', 'recomecar', 'menu', 'início', 'inicio'].includes(text)) {
       conversation.state = 'consent';
       conversation.route = null;
