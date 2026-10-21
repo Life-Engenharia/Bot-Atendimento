@@ -830,6 +830,8 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const conversation = await supabaseStore.getOperatorConversation(request.params.id);
       if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
         return reply.code(403).send({ error: 'Seu cargo não pode assumir esta fila.' });
+      if (conversation.state === 'closed')
+        return reply.code(409).send({ error: 'Reabra o atendimento antes de assumi-lo.' });
       const claimed = await supabaseStore.claimConversation(request.params.id, actor.name);
       if (!claimed) return reply.code(409).send({ error: 'Esta conversa já foi assumida.' });
       logCorrelation(app, {
@@ -871,6 +873,8 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const conversation = await supabaseStore.getOperatorConversation(request.params.id);
       if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
         return reply.code(403).send({ error: 'Seu cargo não pode alterar esta fila.' });
+      if (conversation.state === 'closed')
+        return reply.code(409).send({ error: 'Atendimentos concluídos não podem voltar para a fila.' });
       const released = await supabaseStore.releaseConversation(request.params.id, actor.name);
       if (released)
         logCorrelation(app, {
@@ -1147,6 +1151,8 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       if (!conversation) return reply.code(404).send({ error: 'Conversa não encontrada.' });
       if (!canAccessConversation(actor, conversation.destinationArea))
         return reply.code(403).send({ error: 'Seu cargo não pode acessar esta fila.' });
+      if (conversation.state === 'closed')
+        return reply.code(409).send({ error: 'Reabra o atendimento antes de enviar uma mensagem.' });
       if (conversation.assignedOperator !== actor.name)
         return reply.code(409).send({ error: 'Assuma a conversa antes de responder.' });
       const { text } = operatorMessageSchema.parse(request.body);
