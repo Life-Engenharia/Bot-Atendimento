@@ -1126,15 +1126,27 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const completionMessage = `Seu atendimento${conversation.protocolId ? ` ${conversation.protocolId}` : ''} foi concluído pela equipe Life.\n\nResumo: ${resolutionNote}\n\nA equipe responsável foi informada e o registro foi encerrado. A solução atendeu sua necessidade?`;
       if (outboundSender) {
         try {
-          const delivery = outboundSender.sendButtons
-            ? await outboundSender.sendButtons(conversation.contactPhone, completionMessage, [
+          let delivery;
+          if (outboundSender.sendButtons) {
+            try {
+              delivery = await outboundSender.sendButtons(conversation.contactPhone, completionMessage, [
                 { id: 'satisfaction_resolved', title: 'Sim, resolvido' },
                 { id: 'satisfaction_partial', title: 'Ainda preciso de ajuda' },
-              ])
-            : await outboundSender.sendText(
+              ]);
+            } catch {
+              // Fora da janela interativa, a Meta pode recusar botões. O texto
+              // mantém a pesquisa disponível e permite reabrir o atendimento.
+              delivery = await outboundSender.sendText(
                 conversation.contactPhone,
-                `${completionMessage}\n\nResponda REABRIR se ainda precisar de ajuda.`,
+                `${completionMessage}\n\nResponda 1 se estiver resolvido, 2 se ainda precisar de ajuda ou REABRIR para voltar à fila.`,
               );
+            }
+          } else {
+            delivery = await outboundSender.sendText(
+              conversation.contactPhone,
+              `${completionMessage}\n\nResponda 1 se estiver resolvido, 2 se ainda precisar de ajuda ou REABRIR para voltar à fila.`,
+            );
+          }
           await supabaseStore.saveOutbound(conversation.id, completionMessage, {
             messageId: delivery.messageId,
             status: 'sent',

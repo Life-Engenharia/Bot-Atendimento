@@ -181,16 +181,26 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     if (!inserted) return undefined;
 
     const contact = await this.upsertContact(message.from);
-    const surveyResponse =
-      message.interactiveId === 'satisfaction_resolved' ? 'resolved' : undefined;
+    const normalizedReply = (message.text ?? '').trim().toLowerCase();
+    const surveyCandidate =
+      message.interactiveId === 'satisfaction_resolved' ||
+      message.interactiveId === 'satisfaction_partial' ||
+      normalizedReply === '1' ||
+      normalizedReply === '2';
     const reopened =
       isReopenRequest(message.text ?? message.interactiveId) ||
-      message.interactiveId === 'satisfaction_partial';
+      message.interactiveId === 'satisfaction_partial' ||
+      normalizedReply === '2';
     const conversation = await this.findOrCreateConversation(
       contact.id,
       reopened,
-      Boolean(surveyResponse),
+      surveyCandidate,
     );
+    const surveyResponse =
+      conversation.state === 'closed' &&
+      (message.interactiveId === 'satisfaction_resolved' || normalizedReply === '1')
+        ? 'resolved'
+        : undefined;
     await this.request(
       'messages?id=eq.' + encodeURIComponent(inserted[0].id),
       {
