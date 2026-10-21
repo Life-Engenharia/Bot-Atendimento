@@ -4,7 +4,8 @@
 
 ## Como usar
 
-- `[x]` concluído no código local.
+- `[x]` implementado e testado localmente.
+- `[~]` implementado parcialmente; depende de validação externa ou de regra da Life.
 - `[ ]` pendente.
 - Executar os itens na ordem indicada; itens externos dependem de acesso às respectivas contas.
 - Registrar evidência do teste: data, responsável, resultado e protocolo/mensagem de teste.
@@ -23,7 +24,7 @@
 - [x] Adicionar limite de tamanho de payload e tratamento específico para JSON/payload Meta inválido.
 - [ ] Separar o processamento demorado do webhook em fila assíncrona antes de produção (o webhook deve responder rapidamente).
 - [ ] Adicionar logs estruturados com `requestId`, `conversationId`, `protocolId` e `meta_message_id`.
-- [ ] Criar alertas para falhas de banco, Meta, Ploomes e mensagens P1/P2 sem confirmação.
+- [~] Criar alertas para falhas de banco, Meta, Ploomes e mensagens P1/P2 sem confirmação. Há alertas operacionais e e-mail corporativo; validar destinos e falhas reais em homologação.
 
 **Teste de saída:** `npm run typecheck` e `npm test` aprovados; chamadas locais para `/health` e para os cenários do webhook retornam o esperado.
 
@@ -36,7 +37,7 @@
 - [ ] Criar ambiente de homologação separado do ambiente de produção.
 - [ ] Criar `.env.local` apenas para desenvolvimento e configurar segredos no provedor de hospedagem; nunca versionar tokens.
 - [ ] Configurar `WHATSAPP_VERIFY_TOKEN`, `META_APP_SECRET`, `META_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `SUPABASE_URL` e `SUPABASE_API`.
-- [ ] Criar banco/projeto Supabase de homologação e aplicar todas as migrations.
+- [ ] Criar banco/projeto Supabase de homologação e aplicar todas as migrations, incluindo `20261019000100_lgpd_retention.sql`.
 - [ ] Configurar backup, acesso mínimo necessário e rotação de credenciais.
 
 **Teste de saída:** URL HTTPS acessível; `GET /health` retorna `200 {"status":"ok"}`; banco de homologação possui o schema esperado.
@@ -76,9 +77,9 @@
 - [ ] Criar usuário de integração com privilégios mínimos no Ploomes.
 - [ ] Configurar `PLOOMES_USER_KEY` somente no ambiente de homologação.
 - [ ] Mapear campos de contato e oportunidade com a Life.
-- [ ] Criar/atualizar contato de forma idempotente.
-- [ ] Criar/atualizar oportunidade comercial e vincular o protocolo Life.
-- [ ] Tratar limite de requisições, falha temporária e reprocessamento manual.
+- [~] Criar/atualizar contato de forma idempotente. A busca e a criação local estão implementadas; confirmar campos e regra de duplicidade do Ploomes.
+- [~] Criar/atualizar oportunidade comercial e vincular o protocolo Life. A outbox, criação e vínculo local estão implementados; etapa, responsável e campos obrigatórios reais ainda faltam.
+- [~] Tratar limite de requisições, falha temporária e reprocessamento manual. Há outbox e retentativas; homologar o limite real e o job agendado.
 - [ ] Nunca criar chamado técnico no Ploomes nesta fase.
 - [ ] Quando o Ploomes falhar, manter protocolo local, alertar Comercial e não afirmar ao cliente que o CRM foi atualizado.
 
@@ -86,9 +87,9 @@
 
 ## Etapa 5 — Fluxo técnico seguro
 
-- [ ] Implementar a mensagem inicial obrigatória de segurança.
-- [ ] Coletar: nome/empresa, unidade e contato local, contrato/histórico Life, equipamento, fabricante/modelo, patrimônio/série opcional, sintoma, alarme opcional, início/frequência, impacto, contingência, risco e evidências opcionais.
-- [ ] Fazer uma pergunta por vez e preservar respostas já confirmadas.
+- [x] Implementar a mensagem inicial obrigatória de segurança.
+- [x] Coletar: nome/empresa, unidade e contato local, contrato/histórico Life, equipamento, fabricante/modelo, patrimônio/série opcional, sintoma, alarme opcional, início/frequência, impacto, contingência, risco e evidências opcionais.
+- [x] Fazer uma pergunta por vez e preservar respostas já confirmadas.
 - [ ] Identificar cliente sem contrato/histórico e encaminhar como assistência avulsa para Comercial, sem reiniciar a conversa.
 - [ ] Criar resumo técnico para revisão e confirmação do cliente.
 - [ ] Criar protocolo técnico antes de qualquer notificação interna.
@@ -98,15 +99,15 @@
 
 ## Etapa 6 — Prioridade, fila e escalonamento
 
-- [ ] Implementar regra determinística P1: risco crítico + equipamento parado sem contingência.
-- [ ] Implementar regra determinística P2: parada/falha relevante com contingência limitada.
-- [ ] Implementar regra determinística P3: falha parcial/perda de desempenho sem interrupção crítica.
-- [ ] Implementar regra determinística P4: preventiva, ajuste, dúvida, agendamento ou administrativo.
+- [x] Implementar regra determinística P1: risco crítico + equipamento parado sem contingência.
+- [x] Implementar regra determinística P2: parada/falha relevante com contingência limitada.
+- [x] Implementar regra determinística P3: falha parcial/perda de desempenho sem interrupção crítica.
+- [x] Implementar regra determinística P4: preventiva, ajuste, dúvida, agendamento ou administrativo.
 - [ ] Quando houver ambiguidade, contradição ou risco declarado, usar provisoriamente o nível mais alto plausível e exigir validação humana.
 - [ ] Cadastrar responsáveis, backup, horário e destino para Comercial, Técnico regular, Plantão e Contingência.
-- [ ] Criar notificação interna para P1/P2 e registrar confirmação humana.
-- [ ] Escalonar P1 sem confirmação para backup após 5 minutos (somente após aprovação formal da Life).
-- [ ] Escalonar P2 sem confirmação para backup após 15 minutos (somente após aprovação formal da Life).
+- [~] Criar notificação interna para P1/P2 e registrar confirmação humana. A fila, alertas e auditoria existem; validar destinatários reais.
+- [~] Escalonar P1 sem confirmação para backup após 5 minutos (somente após aprovação formal da Life). A rotina e o prazo proposto existem; falta aprovação e agendamento.
+- [~] Escalonar P2 sem confirmação para backup após 15 minutos (somente após aprovação formal da Life). A rotina e o prazo proposto existem; falta aprovação e agendamento.
 - [ ] Acionar Coordenação/Contingência se responsável e backup não confirmarem.
 
 **Teste de saída:** cenários P1, P2, P3 e P4 roteiam à fila correta; P1/P2 sem confirmação geram escalonamento e auditoria verificável.
@@ -120,7 +121,7 @@
 - [ ] Implementar `RESPONDER CLIENTE`: prévia, confirmação e envio pelo número oficial Life.
 - [ ] Garantir que o número pessoal do colaborador nunca seja exposto ao cliente.
 - [ ] Restringir anexos, histórico e dados de cada protocolo ao perfil autorizado.
-- [ ] Implementar configuração administrativa de responsáveis, escalas, horários e roteamento sem alteração de código.
+- [x] Implementar configuração administrativa de responsáveis, escalas, horários e roteamento sem alteração de código.
 
 **Teste de saída:** cada perfil vê somente o próprio menu e dados autorizados; uma resposta interna chega ao cliente pelo número oficial e fica auditada.
 
@@ -152,7 +153,7 @@
 ## Etapa 10 — Qualidade, LGPD e liberação do piloto
 
 - [ ] Definir e aprovar retenção: referência inicial de 180 dias para conversas e 90 dias para anexos.
-- [ ] Implementar rotina de retenção/expurgo aprovada pela Life e LGPD.
+- [~] Implementar rotina de retenção/expurgo aprovada pela Life e LGPD. A rotina segura de simulação e exclusão condicionada à aprovação registrada foi adicionada; executar somente após aprovação formal.
 - [ ] Revisar RLS, chaves de serviço, MFA e acesso de menor privilégio.
 - [ ] Implementar logs de segurança e procedimento de incidente.
 - [ ] Criar cenários end-to-end: comercial, P1, P2, P3, P4, sem contrato, humano, duplicidade, mídia, erro Meta, erro Supabase e erro Ploomes.
