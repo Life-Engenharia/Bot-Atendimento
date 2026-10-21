@@ -1,7 +1,4 @@
-import {
-  CommercialSyncJob,
-  SupabaseConversationStore,
-} from '../supabase/conversation-store.js';
+import { CommercialSyncJob, SupabaseConversationStore } from '../supabase/conversation-store.js';
 import { PloomesClient } from './ploomes-client.js';
 
 /**
@@ -30,6 +27,19 @@ export class CommercialPloomesSyncService {
       }
     }
     return { processed: jobs.length, synced, failed };
+  }
+
+  async runProtocol(protocolId: string): Promise<{ processed: number; synced: number; failed: number }> {
+    const job = await this.store.getPendingCommercialSyncJob(protocolId);
+    if (!job) return { processed: 0, synced: 0, failed: 0 };
+    try {
+      const result = await this.ploomes.syncCommercialLead(job.payload);
+      await this.store.markCommercialSyncCompleted(job, result.contactId, result.dealId);
+      return { processed: 1, synced: 1, failed: 0 };
+    } catch (error) {
+      await this.store.markCommercialSyncFailed(job, messageFrom(error));
+      return { processed: 1, synced: 0, failed: 1 };
+    }
   }
 }
 

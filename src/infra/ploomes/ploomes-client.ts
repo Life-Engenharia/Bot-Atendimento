@@ -58,7 +58,7 @@ export class PloomesClient {
   constructor(
     private readonly userKey: string,
     private readonly fetcher: typeof fetch = fetch,
-  ) { }
+  ) {}
 
   async getAccount(): Promise<PloomesAccount> {
     return this.request<PloomesAccount>('Account');
@@ -80,8 +80,11 @@ export class PloomesClient {
   async getActiveCommercialPipeline(): Promise<PloomesOption> {
     const pipelines = await this.listPipelines();
     if (pipelines.length === 1) return pipelines[0];
-    if (pipelines.length === 0) throw new Error('Nenhum funil comercial foi encontrado no Ploomes.');
-    throw new Error('Há mais de um funil no Ploomes; configure explicitamente o funil comercial ativo.');
+    if (pipelines.length === 0)
+      throw new Error('Nenhum funil comercial foi encontrado no Ploomes.');
+    throw new Error(
+      'Há mais de um funil no Ploomes; configure explicitamente o funil comercial ativo.',
+    );
   }
 
   async getCommercialMetrics(): Promise<PloomesMetrics> {
@@ -151,17 +154,22 @@ export class PloomesClient {
     return response.value ?? [];
   }
 
-  private async findExistingContact(lead: CommercialLeadForPloomes): Promise<PloomesContact | undefined> {
+  private async findExistingContact(
+    lead: CommercialLeadForPloomes,
+  ): Promise<PloomesContact | undefined> {
     const contacts = await this.listRecentContacts();
     const normalizedPhone = normalizeIdentity(lead.phone);
     const normalizedEmail = lead.email?.trim().toLocaleLowerCase('pt-BR');
     const normalizedName = normalizeIdentity(lead.contactName);
     return contacts.find((contact) => {
-      const values = Object.values(contact).filter((value): value is string => typeof value === 'string');
-      return values.some((value) =>
-        (normalizedPhone && normalizeIdentity(value) === normalizedPhone) ||
-        (normalizedEmail && value.trim().toLocaleLowerCase('pt-BR') === normalizedEmail) ||
-        (normalizedName && normalizeIdentity(contact.Name) === normalizedName),
+      const values = Object.values(contact).filter(
+        (value): value is string => typeof value === 'string',
+      );
+      return values.some(
+        (value) =>
+          (normalizedPhone && normalizeIdentity(value) === normalizedPhone) ||
+          (normalizedEmail && value.trim().toLocaleLowerCase('pt-BR') === normalizedEmail) ||
+          (normalizedName && normalizeIdentity(contact.Name) === normalizedName),
       );
     });
   }
@@ -198,20 +206,34 @@ export class PloomesClient {
           `Necessidade: ${lead.need}`,
           lead.company ? `Empresa: ${lead.company}` : undefined,
           lead.cnpj ? `CNPJ: ${lead.cnpj}` : undefined,
-        ].filter(Boolean).join('\n'),
+        ]
+          .filter(Boolean)
+          .join('\n'),
       }),
     });
   }
 
   private createMetrics(deals: PloomesDeal[]): PloomesMetrics {
     const group = (resolve: (deal: PloomesDeal) => string) =>
-      [...deals.reduce((map, deal) => map.set(resolve(deal), (map.get(resolve(deal)) ?? 0) + 1), new Map<string, number>())]
-        .map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+      [
+        ...deals.reduce(
+          (map, deal) => map.set(resolve(deal), (map.get(resolve(deal)) ?? 0) + 1),
+          new Map<string, number>(),
+        ),
+      ]
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count);
     return {
       totalDeals: deals.length,
       totalAmount: deals.reduce((sum, deal) => sum + (Number(deal.Amount) || 0), 0),
-      byStage: group((deal) => deal.Stage?.Name ?? (deal.StageId ? `Etapa ${deal.StageId}` : 'Etapa não informada')),
-      byStatus: group((deal) => deal.Status?.Name ?? (deal.StatusId ? `Status ${deal.StatusId}` : 'Status não informado')),
+      byStage: group(
+        (deal) =>
+          deal.Stage?.Name ?? (deal.StageId ? `Etapa ${deal.StageId}` : 'Etapa não informada'),
+      ),
+      byStatus: group(
+        (deal) =>
+          deal.Status?.Name ?? (deal.StatusId ? `Status ${deal.StatusId}` : 'Status não informado'),
+      ),
       sampledAt: new Date().toISOString(),
     };
   }
