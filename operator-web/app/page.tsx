@@ -409,6 +409,7 @@ export default function OperatorPage() {
       <section className="workspace">
         {selected ? (
           <>
+            {/** Conversas concluídas são somente leitura até o cliente reabrir. */}
             <header className="workspace-head">
               <p className="eyebrow">Atendimento selecionado</p>
               <h2>{selected.contactName || selected.contactPhone}</h2>
@@ -419,7 +420,7 @@ export default function OperatorPage() {
                 <span>
                   Área<b>{selected.destinationArea || selected.route || 'Atendimento'}</b>
                 </span>
-                <button
+                {!selected.state || selected.state !== 'closed' ? <button
                   type="button"
                   className="btn"
                   onClick={claim}
@@ -428,19 +429,19 @@ export default function OperatorPage() {
                   {selected.assignedOperator === name
                     ? 'Em atendimento por você'
                     : 'Assumir atendimento'}
-                </button>
-                <button
+                </button> : null}
+                {!selected.state || selected.state !== 'closed' ? <button
                   type="button"
                   className="btn alt"
                   onClick={release}
                   disabled={!selected.assignedOperator}
                 >
                   Devolver à fila
-                </button>
-                <button type="button" className="btn danger" onClick={openCloseDialog}>
+                </button> : null}
+                {selected.state !== 'closed' && <button type="button" className="btn danger" onClick={openCloseDialog}>
                   Finalizar atendimento
-                </button>
-                <div className="quick-actions">
+                </button>}
+                {selected.state !== 'closed' && <div className="quick-actions">
                   <button
                     type="button"
                     className="action-link"
@@ -496,7 +497,7 @@ export default function OperatorPage() {
                       Registrar OS manual
                     </button>
                   )}
-                </div>
+                </div>}
               </div>
             </header>
             {!!selected.attachments?.length && (
@@ -543,14 +544,18 @@ export default function OperatorPage() {
                 </div>
               ))}
             </div>
-            <form className="composer" onSubmit={send}>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Digite uma mensagem para enviar…"
-              />
-              <button className="btn">Enviar</button>
-            </form>
+            {selected.state === 'closed' ? (
+              <div className="closed-notice">Atendimento concluído. A conversa será reaberta quando o cliente enviar uma nova mensagem.</div>
+            ) : (
+              <form className="composer" onSubmit={send}>
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Digite uma mensagem para enviar…"
+                />
+                <button className="btn">Enviar</button>
+              </form>
+            )}
           </>
         ) : (
           <div className="empty-workspace">
