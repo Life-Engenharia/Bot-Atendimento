@@ -98,7 +98,11 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
         .send({ error: 'Sua conta corporativa não possui permissão para a central.' });
   });
 
-  app.get('/health', async () => ({ status: 'ok', service: 'admin' }));
+  app.get('/health', async () => ({
+    status: 'ok',
+    service: 'admin',
+    timestamp: new Date().toISOString(),
+  }));
   app.get('/assets/life-logo.png', async (_request, reply) =>
     reply
       .type('image/png')

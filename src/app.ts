@@ -299,7 +299,27 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     uiConfig: { docExpansion: 'list', deepLinking: false },
   });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', async () => ({
+    status: 'ok',
+    service: 'whatsapp-api',
+    timestamp: new Date().toISOString(),
+  }));
+
+  app.get('/ready', async (_request, reply) => {
+    const checks = {
+      supabase: Boolean(supabaseStore),
+      whatsapp: Boolean(outboundSender),
+      webhookVerification: Boolean(environment.WHATSAPP_VERIFY_TOKEN),
+      operatorAuth: Boolean(environment.ADMIN_DASHBOARD_TOKEN),
+    };
+    const ready = checks.supabase && checks.whatsapp && checks.webhookVerification;
+    return reply.code(ready ? 200 : 503).send({
+      status: ready ? 'ready' : 'degraded',
+      service: 'whatsapp-api',
+      timestamp: new Date().toISOString(),
+      checks,
+    });
+  });
 
   app.get('/assets/life-logo.png', async (_request, reply) =>
     reply
