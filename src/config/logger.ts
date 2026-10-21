@@ -30,12 +30,21 @@ export function configureDevelopmentRequestLogging(
   if (environment.NODE_ENV !== 'development') return;
 
   app.addHook('onRequest', async (request) => {
-    request.log.info({ requestId: request.id, method: request.method, url: request.url }, `→ ${request.method} ${request.url}`);
+    request.log.info(
+      { requestId: request.id, method: request.method, url: request.url },
+      `→ ${request.method} ${request.url}`,
+    );
   });
   app.addHook('onSend', async (request, reply, payload) => {
     const response = summarizeResponse(payload);
     request.log.info(
-      { requestId: request.id, method: request.method, url: request.url, statusCode: reply.statusCode, response },
+      {
+        requestId: request.id,
+        method: request.method,
+        url: request.url,
+        statusCode: reply.statusCode,
+        response,
+      },
       `↳ resposta · ${response}`,
     );
     return payload;
@@ -54,6 +63,32 @@ export function configureDevelopmentRequestLogging(
   });
 }
 
+/**
+ * Campos de correlação padronizados para buscas no Cloud Logging. Nunca inclua
+ * mensagem, telefone, token ou outro dado pessoal neste objeto.
+ */
+export function logCorrelation(
+  app: FastifyInstance,
+  fields: {
+    requestId: string;
+    conversationId?: string;
+    protocolId?: string;
+    metaMessageId?: string;
+    action: string;
+  },
+): void {
+  app.log.info(
+    {
+      requestId: fields.requestId,
+      conversationId: fields.conversationId,
+      protocolId: fields.protocolId,
+      meta_message_id: fields.metaMessageId,
+      action: fields.action,
+    },
+    `correlation: ${fields.action}`,
+  );
+}
+
 function summarizeResponse(payload: unknown): string {
   const value = parseJsonPayload(payload);
   if (value === undefined || value === null || value === '') return 'sem conteúdo';
@@ -65,7 +100,8 @@ function summarizeResponse(payload: unknown): string {
   if (body.accepted === true) return 'aceito para envio';
   if (body.created === true) return 'criado com sucesso';
   if (typeof body.status === 'string') return `status: ${body.status}`;
-  if (typeof body.connected === 'boolean') return body.connected ? 'integração conectada' : 'integração indisponível';
+  if (typeof body.connected === 'boolean')
+    return body.connected ? 'integração conectada' : 'integração indisponível';
   return `objeto retornado (${Object.keys(body).length} campo(s))`;
 }
 

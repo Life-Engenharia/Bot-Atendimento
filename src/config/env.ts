@@ -12,6 +12,14 @@ const environmentSchema = z
     META_APP_SECRET: z.string().min(1).optional(),
     WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
     WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
+    COMMERCIAL_NOTIFICATION_PHONE_E164: z
+      .string()
+      .regex(/^\d{8,15}$/)
+      .optional(),
+    TECHNICAL_NOTIFICATION_PHONE_E164: z
+      .string()
+      .regex(/^\d{8,15}$/)
+      .optional(),
     ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
     ADMIN_DASHBOARD_TOKEN: z.string().min(24).optional(),
     // A senha fica apenas no ambiente/Secret Manager. Os demais dados SMTP são
@@ -21,6 +29,7 @@ const environmentSchema = z
     PLOOMES_USER_KEY: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     OPENAI_MODEL: z.string().min(1).optional(),
+    OPENAI_TRANSCRIPTION_MODEL: z.string().min(1).optional(),
     IAP_REQUIRED: z.coerce.boolean().optional(),
     IAP_ALLOWED_EMAILS: z.string().optional(),
   })
@@ -46,7 +55,8 @@ const environmentSchema = z
     if (value.NODE_ENV === 'production' && metaValues.every(Boolean) && !value.META_APP_SECRET) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'META_APP_SECRET é obrigatório em produção quando a Meta WhatsApp API está configurada.',
+        message:
+          'META_APP_SECRET é obrigatório em produção quando a Meta WhatsApp API está configurada.',
       });
     }
     if (Boolean(value.OPENAI_API_KEY) !== Boolean(value.OPENAI_MODEL)) {

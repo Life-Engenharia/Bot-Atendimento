@@ -28,6 +28,7 @@
     "meta:check": "tsx scripts/check-meta-connection.ts",
     "meta:send-test": "tsx scripts/send-meta-test.ts",
     "meta:send-template": "tsx scripts/send-meta-template.ts",
+    "meta:submit-templates": "tsx scripts/submit-meta-templates.ts",
     "ploomes:check": "tsx scripts/check-ploomes-connection.ts",
     "ploomes:discover": "tsx scripts/discover-ploomes-configuration.ts",
     "openai:check": "tsx scripts/check-openai-connection.ts"
@@ -42,6 +43,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@google-cloud/cloud-run-mcp": "^1.11.0",
     "@types/node": "^24.0.0",
     "prettier": "^3.9.9",
     "supabase": "^2.118.0",
