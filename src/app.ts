@@ -94,7 +94,7 @@ const smtpSettingSchema = z.object({
 });
 const operatorMessageSchema = z.object({ text: z.string().trim().min(1).max(4_000) });
 const operatorNoteSchema = z.object({ text: z.string().trim().min(1).max(2_000) });
-const followUpSchema = z.object({ followUpAt: z.string().datetime() });
+const followUpSchema = z.object({ followUpAt: z.string().datetime().nullable() });
 const closeConversationSchema = z.object({ resolutionNote: z.string().trim().min(3).max(2_000) });
 const manualPloomesSchema = z.object({ ploomesId: z.string().trim().min(1).max(120) });
 const manualServiceOrderSchema = z.object({
@@ -257,6 +257,11 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
         });
     });
   };
+  // Retoma automaticamente jobs aguardando retry e jobs abandonados após reinício.
+  // O evento do webhook continua sendo o caminho imediato; este timer é a rede de segurança.
+  const webhookQueuePoll = setInterval(scheduleWebhookDrain, 5_000);
+  webhookQueuePoll.unref?.();
+  app.addHook('onClose', async () => clearInterval(webhookQueuePoll));
   configureDevelopmentRequestLogging(app, environment);
   app.addHook('onRequest', async (request, reply) => {
     if (!environment.IAP_REQUIRED || !request.url.startsWith('/api/admin/')) return;
@@ -1116,47 +1121,49 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const conversation = await supabaseStore.getOperatorConversation(request.params.id);
       if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
         return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      if (conversation.state === 'closed')
+        return reply.code(409).send({ error: 'Este atendimento já foi concluído.' });
       if (
         conversation.assignedOperator !== actor.name &&
         !['admin', 'coordination'].includes(actor.role)
       )
         return reply.code(409).send({ error: 'Assuma a conversa antes de encerrá-la.' });
       const { resolutionNote } = closeConversationSchema.parse(request.body);
-      await supabaseStore.closeConversation(conversation.id, actor.name, resolutionNote);
       const completionMessage = `Seu atendimento${conversation.protocolId ? ` ${conversation.protocolId}` : ''} foi concluído pela equipe Life.\n\nResumo: ${resolutionNote}\n\nA equipe responsável foi informada e o registro foi encerrado. A solução atendeu sua necessidade?`;
-      if (outboundSender) {
-        try {
-          let delivery;
-          if (outboundSender.sendButtons) {
-            try {
-              delivery = await outboundSender.sendButtons(conversation.contactPhone, completionMessage, [
-                { id: 'satisfaction_resolved', title: 'Sim, resolvido' },
-                { id: 'satisfaction_partial', title: 'Ainda preciso de ajuda' },
-              ]);
-            } catch {
-              // Fora da janela interativa, a Meta pode recusar botões. O texto
-              // mantém a pesquisa disponível e permite reabrir o atendimento.
-              delivery = await outboundSender.sendText(
-                conversation.contactPhone,
-                `${completionMessage}\n\nResponda 1 se estiver resolvido, 2 se ainda precisar de ajuda ou REABRIR para voltar à fila.`,
-              );
-            }
-          } else {
-            delivery = await outboundSender.sendText(
-              conversation.contactPhone,
-              `${completionMessage}\n\nResponda 1 se estiver resolvido, 2 se ainda precisar de ajuda ou REABRIR para voltar à fila.`,
-            );
+      if (!outboundSender)
+        return reply.code(503).send({ error: 'WhatsApp indisponível; o atendimento não foi concluído.' });
+      let delivery;
+      let deliveredText = completionMessage;
+      try {
+        if (outboundSender.sendButtons) {
+          try {
+            delivery = await outboundSender.sendButtons(conversation.contactPhone, completionMessage, [
+              { id: 'satisfaction_resolved', title: 'Sim, resolvido' },
+              { id: 'satisfaction_partial', title: 'Ainda preciso de ajuda' },
+            ]);
+          } catch (error) {
+            if (!isDefinitiveMetaRejection(error)) throw error;
+            deliveredText = `${completionMessage}\n\nResponda 1 se estiver resolvido, 2 se ainda precisar de ajuda ou REABRIR para voltar à fila.`;
+            delivery = await outboundSender.sendText(conversation.contactPhone, deliveredText);
           }
-          await supabaseStore.saveOutbound(conversation.id, completionMessage, {
-            messageId: delivery.messageId,
-            status: 'sent',
-          });
-        } catch {
-          await supabaseStore.audit('conversation.close_notification_failed', actor.name, {
-            conversationId: conversation.id,
-          });
+        } else {
+          deliveredText = `${completionMessage}\n\nResponda 1 se estiver resolvido, 2 se ainda precisar de ajuda ou REABRIR para voltar à fila.`;
+          delivery = await outboundSender.sendText(conversation.contactPhone, deliveredText);
         }
+        await supabaseStore.saveOutbound(conversation.id, deliveredText, {
+          messageId: delivery.messageId,
+          status: 'sent',
+        });
+      } catch (error) {
+        await supabaseStore.audit('conversation.close_notification_failed', actor.name, {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message.slice(0, 500) : 'Falha de envio',
+        });
+        return reply.code(502).send({
+          error: 'A mensagem final não foi confirmada pelo WhatsApp; o atendimento continua aberto. Verifique a janela de 24 horas ou o template aprovado e tente novamente.',
+        });
       }
+      await supabaseStore.closeConversation(conversation.id, actor.name, resolutionNote);
       logCorrelation(app, {
         requestId: request.id,
         conversationId: conversation.id,
@@ -1239,7 +1246,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const messages = incomingMessages(request.body);
       const deliveryStatuses = incomingDeliveryStatuses(request.body);
       if (supabaseStore && deliveryStatuses.length) {
-        await Promise.allSettled(
+        await Promise.all(
           deliveryStatuses.map((delivery) => {
             const status = ['sent', 'delivered', 'read', 'failed'].includes(delivery.status)
               ? (delivery.status as 'sent' | 'delivered' | 'read' | 'failed')
@@ -1326,7 +1333,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     const statusCode =
       typeof (error as { statusCode?: unknown }).statusCode === 'number'
         ? (error as { statusCode: number }).statusCode
-        : 400;
+        : 500;
     return reply.code(statusCode).send({ error: message });
   });
 
@@ -1366,7 +1373,7 @@ function incomingMessages(body: unknown): IncomingMessage[] {
     (body as { object?: unknown }).object !== 'whatsapp_business_account' ||
     !Array.isArray((body as { entry?: unknown }).entry)
   )
-    throw new Error('Payload do webhook Meta inválido.');
+    throw Object.assign(new Error('Payload do webhook Meta inválido.'), { statusCode: 400 });
   return normalizeMetaWebhook(body as Parameters<typeof normalizeMetaWebhook>[0]);
 }
 
@@ -1475,6 +1482,10 @@ function canAccessConversation(
 ): boolean {
   const areas = visibleAreas(actor);
   return !areas || Boolean(destinationArea && areas.includes(destinationArea));
+}
+
+function isDefinitiveMetaRejection(error: unknown): boolean {
+  return error instanceof Error && /Meta WhatsApp API request failed \((400|422)\)/.test(error.message);
 }
 
 async function sendOperationalAlertEmail(

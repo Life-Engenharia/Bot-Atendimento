@@ -36,7 +36,8 @@ describe('application foundation', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok' });
+    expect(response.json()).toMatchObject({ status: 'ok', service: 'whatsapp-api' });
+    expect(response.json().timestamp).toEqual(expect.any(String));
     await app.close();
   });
 
@@ -305,6 +306,9 @@ describe('application foundation', () => {
       attachments: [],
     };
     let claimedBy: string | undefined;
+    let assignedOperator: string | null = null;
+    let conversationState: 'queued' | 'closed' = 'queued';
+    let closeCalls = 0;
     const store = {
       findUserByEmail: async () => ({
         id: 'operator-1',
@@ -315,12 +319,23 @@ describe('application foundation', () => {
         area: 'commercial' as const,
         active: true,
       }),
-      listOperatorConversations: async () => [conversation],
-      getOperatorConversation: async () => conversation,
+      listOperatorConversations: async () => [
+        { ...conversation, state: conversationState, assignedOperator },
+      ],
+      getOperatorConversation: async () => ({
+        ...conversation,
+        state: conversationState,
+        assignedOperator,
+      }),
       claimConversation: async (_id: string, operator: string) => {
         claimedBy = operator;
+        assignedOperator = operator;
         return true;
       },
+      closeConversation: async () => {
+        closeCalls += 1;
+      },
+      audit: async () => undefined,
     };
     const app = buildApp({
       environment: {
@@ -330,6 +345,14 @@ describe('application foundation', () => {
         ADMIN_DASHBOARD_TOKEN: 'dashboard-token-with-at-least-24-characters',
       },
       supabaseStore: store as never,
+      outboundSender: {
+        sendText: async () => {
+          throw new Error('Meta WhatsApp API request failed (400).');
+        },
+        sendButtons: async () => {
+          throw new Error('Meta WhatsApp API request failed (400).');
+        },
+      },
     });
     const login = await app.inject({
       method: 'POST',
@@ -353,12 +376,29 @@ describe('application foundation', () => {
       headers: { authorization: `Bearer ${token}` },
       payload: { destination: 'technical' },
     });
+    const closeNotificationFailed = await app.inject({
+      method: 'POST',
+      url: '/api/operator/conversations/conversation-1/close',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { resolutionNote: 'Atendimento resolvido e validado.' },
+    });
+    conversationState = 'closed';
+    const closeAgain = await app.inject({
+      method: 'POST',
+      url: '/api/operator/conversations/conversation-1/close',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { resolutionNote: 'Atendimento resolvido e validado.' },
+    });
 
     expect(login.statusCode).toBe(200);
     expect(list.json()).toHaveLength(1);
     expect(claim.statusCode).toBe(204);
     expect(claimedBy).toBe('Ana Operadora');
     expect(transfer.statusCode).toBe(403);
+    expect(closeNotificationFailed.statusCode).toBe(502);
+    expect(closeNotificationFailed.json().error).toContain('continua aberto');
+    expect(closeAgain.statusCode).toBe(409);
+    expect(closeCalls).toBe(0);
     await app.close();
   });
 });
