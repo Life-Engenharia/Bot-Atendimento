@@ -34,10 +34,14 @@ export class OpenAiResponseRefiner implements ResponseRefiner {
         input: `Mensagem recente do cliente:\n${latestCustomerMessage.slice(0, 600)}\n\nMensagem pronta a revisar:\n${reply.slice(0, 1_500)}`,
         text: {
           format: {
-            type: 'json_schema', name: 'refined_customer_reply', strict: true,
+            type: 'json_schema',
+            name: 'refined_customer_reply',
+            strict: true,
             schema: {
-              type: 'object', properties: { reply: { type: 'string', minLength: 1, maxLength: 1_800 } },
-              required: ['reply'], additionalProperties: false,
+              type: 'object',
+              properties: { reply: { type: 'string', minLength: 1, maxLength: 1_800 } },
+              required: ['reply'],
+              additionalProperties: false,
             },
           },
         },
@@ -46,7 +50,8 @@ export class OpenAiResponseRefiner implements ResponseRefiner {
     if (!response.ok) throw new Error(`OpenAI respondeu ${response.status} ao refinar a mensagem.`);
     const body = (await response.json()) as OpenAiResponse;
     const parsed = JSON.parse(body.output_text ?? '') as { reply?: unknown };
-    if (typeof parsed.reply !== 'string' || !parsed.reply.trim()) throw new Error('A OpenAI não retornou uma resposta válida.');
+    if (typeof parsed.reply !== 'string' || !parsed.reply.trim())
+      throw new Error('A OpenAI não retornou uma resposta válida.');
     return parsed.reply.trim();
   }
 }

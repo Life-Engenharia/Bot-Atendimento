@@ -6,14 +6,17 @@ import { buildTriageInstructions } from '../../modules/conversations/application
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 
-type OpenAiResponse = { output_text?: string };
+type OpenAiResponse = {
+  output_text?: string;
+  output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+};
 
 export class OpenAiTriageClient implements TriageAnalyzer {
   constructor(
     private readonly apiKey: string,
     private readonly model: string,
     private readonly fetcher: typeof fetch = fetch,
-  ) { }
+  ) {}
 
   async classify(message: string): Promise<TriageAnalysis> {
     const response = await this.fetcher(OPENAI_RESPONSES_URL, {
@@ -47,7 +50,18 @@ export class OpenAiTriageClient implements TriageAnalyzer {
     });
     if (!response.ok) throw new Error(`OpenAI respondeu ${response.status} na classificação.`);
     const body = (await response.json()) as OpenAiResponse;
-    const analysis = JSON.parse(body.output_text ?? '') as TriageAnalysis;
+    const outputText =
+      body.output_text ??
+      body.output
+        ?.flatMap((item) => item.content ?? [])
+        .filter((item) => item.type === 'output_text')
+        .map((item) => item.text ?? '')
+        .join('');
+    if (!outputText?.trim())
+      throw new Error(
+        'A OpenAI não retornou texto para a classificação. Verifique o modelo configurado.',
+      );
+    const analysis = JSON.parse(outputText) as TriageAnalysis;
     if (!['commercial', 'technical', 'human'].includes(analysis.route))
       throw new Error('A OpenAI retornou uma rota inválida.');
     if (!Number.isFinite(analysis.confidence) || analysis.confidence < 0 || analysis.confidence > 1)
