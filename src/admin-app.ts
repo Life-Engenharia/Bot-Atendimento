@@ -14,6 +14,7 @@ import type { OperationalConfigurationStore } from './modules/internal_operation
 import { enhancedAdminDashboardHtml } from './modules/internal_operations/presentation/admin-dashboard-enhancements.js';
 import { SmtpEmailSender, smtpConfigurationFromSettings } from './infra/email/smtp-email-sender.js';
 import type { OperationalDocument } from './infra/supabase/conversation-store.js';
+import { PloomesClient } from './infra/ploomes/ploomes-client.js';
 
 export type AdminAppDependencies = {
   environment?: Environment;
@@ -131,6 +132,23 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
       return reply.code(401).send({ error: 'Não autorizado.' });
     if (!supabaseStore) return reply.code(503).send({ error: 'Operação não configurada.' });
     return supabaseStore.getOperationalOverview();
+  });
+  app.get('/api/admin/ploomes/contacts', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!environment.PLOOMES_USER_KEY)
+      return reply.code(503).send({ error: 'Ploomes ainda não está configurado.' });
+    const query = String((request.query as { q?: string } | undefined)?.q ?? '').trim();
+    if (query.length < 2) return { contacts: [], query };
+    const contacts = await new PloomesClient(environment.PLOOMES_USER_KEY).searchContacts(query);
+    return { contacts, query };
+  });
+  app.get('/api/admin/ploomes/fields', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!environment.PLOOMES_USER_KEY)
+      return reply.code(503).send({ error: 'Ploomes ainda não está configurado.' });
+    return { fields: await new PloomesClient(environment.PLOOMES_USER_KEY).listContactFields() };
   });
   app.get('/api/admin/health', async (request, reply) => {
     if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))

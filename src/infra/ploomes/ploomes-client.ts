@@ -141,6 +141,50 @@ export class PloomesClient {
     };
   }
 
+  async searchContacts(search: string): Promise<PloomesContact[]> {
+    const value = search.trim();
+    if (value.length < 2) return [];
+    const document = normalizeDocument(value);
+    if (document && document.length >= 11) {
+      const found = new Map<number, PloomesContact>();
+      for (const field of ['CNPJ', 'Register', 'CPF']) {
+        const query = new URLSearchParams({
+          $top: '25',
+          $filter: `${field} eq '${document}'`,
+        });
+        const response = await this.request<PloomesList<PloomesContact>>(`Contacts?${query}`);
+        for (const contact of response.value ?? []) if (contact.Id) found.set(contact.Id, contact);
+      }
+      if (found.size) return [...found.values()];
+    }
+    const recent = await this.listRecentContacts();
+    const normalized = normalizeIdentity(value) ?? '';
+    return recent.filter((contact) => {
+      const fields = [contact.Name, contact.LegalName, contact.Register, contact.CNPJ, contact.CPF, contact.Email];
+      return fields.some((field) => (normalizeIdentity(String(field ?? '')) ?? '').includes(normalized));
+    });
+  }
+
+  async findContactByDocument(documentValue: string): Promise<PloomesContact | undefined> {
+    const document = normalizeDocument(documentValue);
+    if (!document) return undefined;
+    for (const field of ['CNPJ', 'Register', 'CPF']) {
+      const query = new URLSearchParams({ $top: '2', $filter: `${field} eq '${document}'` });
+      const response = await this.request<PloomesList<PloomesContact>>(`Contacts?${query}`);
+      const match = response.value?.find((contact) =>
+        [contact.CNPJ, contact.Register, contact.CPF].map((value) => normalizeDocument(value)).includes(document),
+      );
+      if (match) return match;
+    }
+    return undefined;
+  }
+
+  async listContactFields(): Promise<Array<Record<string, unknown>>> {
+    const query = new URLSearchParams({ $top: '500' });
+    const response = await this.request<PloomesList<Record<string, unknown>>>(`Fields?${query}`);
+    return (response.value ?? []).filter((field) => field.EntityId === 15);
+  }
+
   private async listRecentDeals(): Promise<PloomesDeal[]> {
     // Leitura limitada e ordenada: preserva desempenho e a User-Key nunca sai do servidor.
     const query = new URLSearchParams({ $top: '100', $orderby: 'Id desc' });
@@ -157,6 +201,27 @@ export class PloomesClient {
   private async findExistingContact(
     lead: CommercialLeadForPloomes,
   ): Promise<PloomesContact | undefined> {
+    // O Ploomes permite filtrar o cadastro inteiro por documento. Isso evita
+    // depender apenas dos 100 contatos mais recentes e, principalmente,
+    // impede duplicar uma empresa já cadastrada há mais tempo.
+    const document = normalizeDocument(lead.cnpj);
+    if (document) {
+      for (const field of ['CNPJ', 'Register', 'CPF']) {
+        const query = new URLSearchParams({
+          $top: '2',
+          $filter: `${field} eq '${document}'`,
+        });
+        const response = await this.request<PloomesList<PloomesContact>>(
+          `Contacts?${query}`,
+        );
+        const match = response.value?.find((contact) =>
+          [contact.CNPJ, contact.Register, contact.CPF]
+            .map((value) => normalizeDocument(value))
+            .includes(document),
+        );
+        if (match) return match;
+      }
+    }
     const contacts = await this.listRecentContacts();
     const normalizedPhone = normalizeIdentity(lead.phone);
     const normalizedEmail = lead.email?.trim().toLocaleLowerCase('pt-BR');
@@ -179,7 +244,10 @@ export class PloomesClient {
       method: 'POST',
       body: JSON.stringify({
         Name: lead.contactName,
+        LegalName: lead.company || undefined,
         CompanyName: lead.company || undefined,
+        Register: lead.cnpj ? normalizeDocument(lead.cnpj) : undefined,
+        CNPJ: lead.cnpj ? normalizeDocument(lead.cnpj) : undefined,
         Phone: lead.phone || undefined,
         Email: lead.email || undefined,
       }),
@@ -260,5 +328,10 @@ export class PloomesClient {
 
 function normalizeIdentity(value?: string): string | undefined {
   const normalized = value?.replace(/[^a-zA-Z0-9]/g, '').toLocaleLowerCase('pt-BR');
+  return normalized || undefined;
+}
+
+function normalizeDocument(value?: unknown): string | undefined {
+  const normalized = String(value ?? '').replace(/\D/g, '');
   return normalized || undefined;
 }
