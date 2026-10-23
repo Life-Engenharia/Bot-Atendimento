@@ -277,15 +277,20 @@ button {
   border-radius: 12px;
   background: #f4f7f9;
   overflow: hidden;
+  transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
+.board-column.is-drop-target { background: #eaf4fc; border-color: #7db8e8; box-shadow: inset 0 0 0 2px #b9dcf5; }
 .board-column:nth-child(1) { border-top: 3px solid #8064e8; }
 .board-column:nth-child(2) { border-top: 3px solid #16a6c9; }
 .board-column:nth-child(3) { border-top: 3px solid #efa43f; }
 .board-column .item { margin: 8px; }
+.item { cursor: grab; }
+.item:active { cursor: grabbing; }
 .board-column .item:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 22px rgba(8, 34, 52, .12);
 }
+.board-column .item.is-dragging { opacity: .45; }
 .board-column-head {
   display: flex;
   align-items: center;
@@ -330,6 +335,20 @@ button {
   border-color: #b9d9f3;
   background: #eaf3fb;
 }
+.move-control { display: block; margin-top: 9px; }
+.board-hint { margin: 8px 14px 0; color: #647c8a; font-size: 11px; }
+.move-control select {
+  width: 100%;
+  border: 1px solid #d3e0e8;
+  border-radius: 7px;
+  background: #fff;
+  color: #31556a;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .item strong {
   display: block;
 }
@@ -787,6 +806,7 @@ button {
 <button id="alerts" type="button" class="btn alt">Ativar som</button>
 </div>
 </div>
+<p class="board-hint">Arraste os cartões entre as etapas ou use “Mover para…” no cartão.</p>
 <div id="list" class="list"></div>
 </aside>
 <main id="queueView" class="workspace">
@@ -874,7 +894,8 @@ let items = [],
   lastInboxCheckAt = Date.now(),
   knownUpdates = new Map(),
   eventController = null,
-  loadTimer = null;
+  loadTimer = null,
+  queueLoadInProgress = false;
 const roles = ["admin", "coordination", "commercial", "technical", "on_call"];
 const auth = () => ({
   Authorization: "Bearer " + sessionStorage.getItem("operatorToken"),
@@ -907,6 +928,18 @@ const mins = (v) => (Date.now() - new Date(v)) / 60000;
 const sla = (c) => (["P1", "P2"].includes(c.suggestedPriority) ? 30 : 120);
 const late = (c) => mins(c.updatedAt) > sla(c);
 const due = (c) => c.followUpAt && new Date(c.followUpAt) <= new Date();
+const scheduled = (c) => Boolean(c.followUpAt);
+const conversationStateLabel = (state) =>
+  ({
+    started: "Novo contato",
+    consent: "Aguardando autorização",
+    route: "Escolhendo atendimento",
+    collecting: "Triagem pelo bot",
+    review: "Aguardando confirmação",
+    queued: "Aguardando equipe",
+    human: "Atendimento humano",
+    closed: "Concluído",
+  })[state] || "Atendimento";
 const age = (v) => {
   const n = Math.floor(mins(v));
   return n < 60 ? n + " min" : Math.floor(n / 60) + " h";
@@ -923,7 +956,7 @@ const money = (v) =>
     maximumFractionDigits: 0,
   }).format(Number(v) || 0);
 const action = (c) =>
-  due(c) || late(c) || ["P1", "P2"].includes(c.suggestedPriority);
+  !c.assignedOperator || due(c) || late(c) || ["P1", "P2"].includes(c.suggestedPriority);
 function note(t, ok = false) {
   const e = document.getElementById("notice");
   e.textContent = t;
@@ -1021,17 +1054,44 @@ function renderQueue() {
   const list = document.getElementById("list");
   list.innerHTML = "";
   const groups = [
-    { key: "new", title: "Novos", items: rows.filter((c) => !c.assignedOperator && !due(c)) },
-    { key: "mine", title: "Em atendimento", items: rows.filter((c) => Boolean(c.assignedOperator) && !due(c)) },
-    { key: "due", title: "Retorno / atenção", items: rows.filter((c) => due(c)) },
+    { key: "new", title: "Novos", items: rows.filter((c) => !c.assignedOperator && !scheduled(c)) },
+    { key: "mine", title: "Em atendimento", items: rows.filter((c) => Boolean(c.assignedOperator) && !scheduled(c)) },
+    { key: "followup", title: "Retorno / atenção", items: rows.filter(scheduled) },
   ];
   groups.forEach((group) => {
     const column = document.createElement("section");
     column.className = "board-column";
+    column.dataset.dropTarget = group.key;
+    column.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer?.types.includes("text/plain")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      column.classList.add("is-drop-target");
+    });
+    column.addEventListener("dragleave", (event) => {
+      if (!column.contains(event.relatedTarget)) column.classList.remove("is-drop-target");
+    });
+    column.addEventListener("drop", (event) => {
+      event.preventDefault();
+      column.classList.remove("is-drop-target");
+      const conversationId = event.dataTransfer?.getData("text/plain");
+      if (conversationId) moveConversation(conversationId, group.key);
+    });
     column.innerHTML = '<div class="board-column-head"><span>' + group.items.length + '</span><strong>' + group.title + '</strong></div>';
     group.items.forEach((c) => {
     const e = document.createElement("article");
     e.className = "item" + (selected?.id === c.id ? " active" : "");
+    e.draggable = true;
+    e.dataset.conversationId = c.id;
+    e.addEventListener("dragstart", (event) => {
+      event.dataTransfer?.setData("text/plain", c.id);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      requestAnimationFrame(() => e.classList.add("is-dragging"));
+    });
+    e.addEventListener("dragend", () => {
+      e.classList.remove("is-dragging");
+      document.querySelectorAll(".board-column.is-drop-target").forEach((target) => target.classList.remove("is-drop-target"));
+    });
     const p = c.suggestedPriority
       ? '<span class="tag ' +
         c.suggestedPriority.toLowerCase() +
@@ -1045,28 +1105,93 @@ function renderQueue() {
       '</strong><div class="meta">' +
       p +
       (late(c) ? '<span class="tag late">SLA vencido</span>' : "") +
-      (due(c) ? '<span class="tag due">Retorno agora</span>' : "") +
+      (scheduled(c) ? '<span class="tag due">' + (due(c) ? 'Retorno atrasado' : 'Retorno agendado') + '</span>' : "") +
       '</div><div class="meta">' +
-      esc(c.destinationArea || c.route || "Atendimento") +
+      esc(conversationStateLabel(c.state)) +
       (c.protocolId ? " · " + esc(c.protocolId) : "") +
       " · há " +
       age(c.updatedAt) +
-      "</div>";
+      '</div><label class="move-control"><span class="sr-only">Mover atendimento de ' + esc(c.contactName || c.contactPhone) + '</span><select data-move-id="' + esc(c.id) + '" aria-label="Mover atendimento de ' + esc(c.contactName || c.contactPhone) + '"><option value="">Mover para…</option><option value="new">Novos</option><option value="mine">Em atendimento</option><option value="followup">Retorno / atenção</option></select></label>';
     e.onclick = () => open(c.id);
+    e.querySelector("select").addEventListener("click", (event) => event.stopPropagation());
+    e.querySelector("select").addEventListener("change", (event) => {
+      event.stopPropagation();
+      const target = event.currentTarget.value;
+      event.currentTarget.value = "";
+      if (target) moveConversation(c.id, target);
+    });
     column.append(e);
   });
     if (!group.items.length) column.insertAdjacentHTML("beforeend", '<div class="board-empty">Nenhum atendimento nesta etapa</div>');
     list.append(column);
   });
 }
+async function moveConversation(id, target) {
+  const conversation = items.find((item) => item.id === id);
+  if (!conversation) return;
+  const me = sessionStorage.getItem("operatorName");
+  try {
+    if (target === "mine") {
+      if (conversation.assignedOperator === me) return;
+      if (conversation.assignedOperator) throw Error("Este atendimento já está com outra pessoa.");
+      await api("/api/operator/conversations/" + id + "/claim", { method: "POST" });
+      await load();
+      note("Atendimento assumido. O cliente foi avisado.", true);
+      return;
+    }
+    if (target === "new") {
+      if (conversation.assignedOperator && conversation.assignedOperator !== me)
+        throw Error("Só quem está atendendo pode devolver este caso à fila.");
+      if (conversation.assignedOperator) {
+        await api("/api/operator/conversations/" + id + "/release", { method: "POST" });
+      } else if (scheduled(conversation)) {
+        await api("/api/operator/conversations/" + id + "/follow-up", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ followUpAt: null }),
+        });
+      } else return;
+      await load();
+      note("Atendimento movido para Novos; o retorno anterior foi cancelado.", true);
+      return;
+    }
+    if (target === "followup") {
+      const minimum = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+      modal(
+        "Agendar retorno",
+        '<p class="muted">Escolha quando este atendimento deve aparecer em “Retorno / atenção”.</p><label class="field">Data e horário<input name="followUpAt" type="datetime-local" min="' + minimum + '" required></label>',
+        async (form) => {
+          const value = form.get("followUpAt");
+          if (!value) throw Error("Escolha a data e o horário do retorno.");
+          await api("/api/operator/conversations/" + id + "/follow-up", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ followUpAt: new Date(value).toISOString() }),
+          });
+          await load();
+          note("Retorno agendado.", true);
+        },
+      );
+    }
+  } catch (error) {
+    note(error.message || "Não foi possível mover o atendimento.");
+    load().catch(() => {});
+  }
+}
 async function load() {
-  const nextItems = await api("/api/operator/conversations");
-  if (!knownUpdates.size) knownUpdates = new Map(nextItems.map((conversation) => [conversation.id, conversation.updatedAt]));
-  else await checkForIncoming(nextItems);
-  items = nextItems;
-  renderQueue();
-  if (selected && items.some((i) => i.id === selected.id))
-    await open(selected.id);
+  if (queueLoadInProgress) return;
+  queueLoadInProgress = true;
+  try {
+    const nextItems = await api("/api/operator/conversations");
+    if (!knownUpdates.size) knownUpdates = new Map(nextItems.map((conversation) => [conversation.id, conversation.updatedAt]));
+    else await checkForIncoming(nextItems);
+    items = nextItems;
+    renderQueue();
+    if (selected && items.some((i) => i.id === selected.id))
+      await open(selected.id);
+  } finally {
+    queueLoadInProgress = false;
+  }
 }
 async function connectLiveUpdates() {
   eventController?.abort();
@@ -1084,7 +1209,7 @@ async function connectLiveUpdates() {
       const chunk = await reader.read();
       if (chunk.done) throw Error("Canal em tempo real encerrado");
       buffer += decoder.decode(chunk.value, { stream: true });
-      const events = buffer.split("\\\\n\\\\n");
+      const events = buffer.split("\\n\\n");
       buffer = events.pop();
       events.forEach((event) => {
         if (event.includes("event: inbox")) {
@@ -1120,6 +1245,7 @@ function isOutboundMessage(message) {
 }
 async function open(id) {
   selected = await api("/api/operator/conversations/" + id);
+  const commercialLead = selected.destinationArea === "commercial" && !selected.assignedOperator;
   document.getElementById("empty").classList.add("hidden");
   document.getElementById("detail").classList.remove("hidden");
   document.getElementById("name").textContent =
@@ -1127,10 +1253,14 @@ async function open(id) {
   document.getElementById("avatar").textContent = (selected.contactName || "C")
     .slice(0, 2)
     .toUpperCase();
-  document.getElementById("state").textContent = selected.assignedOperator
+  document.getElementById("state").textContent = commercialLead
+    ? "Lead recebido pelo comercial"
+    : selected.assignedOperator
     ? "Em atendimento humanizado por " + selected.assignedOperator
     : "Aguardando alguém assumir";
-  document.getElementById("orientation").textContent = selected.assignedOperator
+  document.getElementById("orientation").textContent = commercialLead
+    ? "Acompanhe o retorno do comercial"
+    : selected.assignedOperator
     ? "Resolva este atendimento"
     : "Assuma ou encaminhe este atendimento";
   const c = selected.context || {},
@@ -1183,8 +1313,16 @@ async function open(id) {
     selected.assignedOperator === sessionStorage.getItem("operatorName");
   document.getElementById("claim").textContent = mine
     ? "Em atendimento por você"
+    : commercialLead
+    ? "Lead comercial — sem assumir"
     : "Assumir atendimento";
-  document.getElementById("claim").disabled = mine;
+  document.getElementById("claim").disabled = mine || commercialLead;
+  document.getElementById("more").disabled = commercialLead;
+  document.getElementById("text").disabled = commercialLead;
+  document.getElementById("text").placeholder = commercialLead
+    ? "Este lead é tratado pelo comercial."
+    : "Digite sua mensagem ao cliente";
+  document.querySelector("#composer button").disabled = commercialLead;
   renderQueue();
 }
 function modal(title, body, fn) {
@@ -1492,4 +1630,10 @@ document.getElementById("logout").onclick = () => {
 };
 alertsEnabled = localStorage.getItem("lifeIncomingAlerts") === "true";
 updateAlertControl();
+// SSE acelera a atualização na mesma instância; polling curto também cobre
+// reconexões e múltiplas instâncias (ex.: Cloud Run), onde eventos não são compartilhados.
+setInterval(() => {
+  if (sessionStorage.getItem("operatorToken") && !document.getElementById("app").classList.contains("hidden"))
+    load().catch(() => {});
+}, 5_000);
 </script></body></html>`;

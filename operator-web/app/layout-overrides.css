@@ -81,10 +81,12 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
 .quick-actions {
   width: 100%;
   margin-top: 10px;
 }
+
 .action-link,
 .attachment {
   border: 1px solid #bfd8e8;
@@ -97,42 +99,51 @@
   font-weight: 700;
   cursor: pointer;
 }
+
 .action-link:hover,
 .attachment:hover {
   background: #edf8ff;
 }
+
 .attachments {
   padding: 10px 20px;
   border-bottom: 1px solid #dce8ee;
   background: #fbfdff;
 }
+
 .attachments strong {
   font-size: 12px;
   color: #41627a;
 }
+
 .attachment {
   display: inline-flex;
   gap: 7px;
   align-items: center;
 }
+
 .attachment small {
   color: #6a8799;
 }
+
 .attachment:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
 .attachment-wrap details {
   margin-top: 5px;
   max-width: 390px;
   color: #42647a;
   font-size: 12px;
 }
+
 .attachment-wrap summary {
   cursor: pointer;
   color: #126d9b;
   font-weight: 700;
 }
+
 .attachment-wrap p {
   margin: 5px 0;
   white-space: pre-wrap;
@@ -152,6 +163,100 @@
   grid-template-columns: repeat(5, minmax(155px, 1fr));
   gap: 10px;
   align-items: start;
+}
+
+.column {
+  min-height: 190px;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.column.drop-target {
+  background: #e8f4fb;
+  border-color: #64a9d7;
+  box-shadow: inset 0 0 0 2px #b8dcf3;
+}
+
+.case-wrap {
+  min-width: 0;
+}
+
+.case {
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.case:active {
+  cursor: grabbing;
+}
+
+.case.dragging {
+  opacity: 0.45;
+}
+
+.case-move-label {
+  display: block;
+  margin: -4px 9px 9px;
+}
+
+.case-move {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid #d6e4eb;
+  border-radius: 7px;
+  background: #f9fcfd;
+  color: #42657a;
+  font: inherit;
+  font-size: 11px;
+}
+
+.case-move:focus-visible {
+  outline: 3px solid #b8dcf3;
+  border-color: #2589cf;
+}
+
+.badge.moving {
+  background: #eaf2ff;
+  color: #1a5ea9;
+}
+
+.board-notice {
+  position: absolute;
+  z-index: 3;
+  inset: auto 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #c5dce9;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 8px 24px #0823351c;
+  color: #234e68;
+  font-size: 12px;
+}
+
+.board-notice button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: #45697d;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 @media (max-width: 1280px) {

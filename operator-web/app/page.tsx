@@ -34,13 +34,28 @@ type Attachment = {
   extractedText?: string | null;
 };
 type ActionKind = 'followup' | 'ploomesManual' | 'serviceOrder' | null;
+type BoardColumn = 'waiting' | 'lead' | 'active' | 'followup' | 'closed';
+const boardColumnByTitle: Record<string, BoardColumn> = {
+  Aguardando: 'waiting',
+  Lead: 'lead',
+  'Em atendimento': 'active',
+  'Retorno / atenção': 'followup',
+  Concluídos: 'closed',
+};
 const apiBase = '';
 const auth = () => ({ Authorization: `Bearer ${sessionStorage.getItem('operatorToken') || ''}` });
 async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const r = await fetch(apiBase + path, {
-    ...init,
-    headers: { ...auth(), ...(init.headers || {}) },
-  });
+  let r: Response;
+  try {
+    r = await fetch(apiBase + path, {
+      ...init,
+      headers: { ...auth(), ...(init.headers || {}) },
+    });
+  } catch {
+    throw new Error(
+      'Não foi possível conectar ao servidor de atendimento. Verifique se o backend está ativo e tente novamente.',
+    );
+  }
   const raw = r.status === 204 ? '' : await r.text().catch(() => '');
   let body: unknown = {};
   try {
@@ -59,9 +74,11 @@ export default function OperatorPage() {
     [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
     [notice, setNotice] = useState(''),
-    [name, setName] = useState('');
+    [name, setName] = useState(''),
+    [role, setRole] = useState('');
   const [items, setItems] = useState<Conversation[]>([]),
     [selected, setSelected] = useState<Conversation | null>(null),
+    [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({}),
     [tab, setTab] = useState('action'),
     [query, setQuery] = useState(''),
     [text, setText] = useState(''),
@@ -74,14 +91,28 @@ export default function OperatorPage() {
     [actionError, setActionError] = useState(''),
     [acting, setActing] = useState(false),
     [sending, setSending] = useState(false),
-    [sendError, setSendError] = useState('');
+    [sendError, setSendError] = useState(''),
+    [draggingId, setDraggingId] = useState(''),
+    [dropTarget, setDropTarget] = useState<BoardColumn | null>(null),
+    [movingId, setMovingId] = useState(''),
+    [boardNotice, setBoardNotice] = useState('');
   const load = async () => {
     const rows = await api<Conversation[]>('/api/operator/conversations?includeClosed=true');
     setItems(rows);
     if (selected) {
       const current = rows.find((x: Conversation) => x.id === selected.id);
-      if (current) setSelected(await api<Conversation>('/api/operator/conversations/' + current.id));
+      if (current)
+        setSelected(await api<Conversation>('/api/operator/conversations/' + current.id));
     }
+  };
+  const refresh = () => {
+    void load().catch((error) => {
+      setBoardNotice(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível atualizar a fila. Tente novamente.',
+      );
+    });
   };
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -95,9 +126,11 @@ export default function OperatorPage() {
     const loginError = new URLSearchParams(window.location.search).get('loginError');
     if (loginError) setNotice(loginError);
     const n = sessionStorage.getItem('operatorName'),
-      t = sessionStorage.getItem('operatorToken');
+      t = sessionStorage.getItem('operatorToken'),
+      r = sessionStorage.getItem('operatorRole');
     if (n && t) {
       setName(n);
+      setRole(r || '');
       load()
         .then(() => setLogged(true))
         .catch(() => {
@@ -106,6 +139,33 @@ export default function OperatorPage() {
         });
     }
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const images = (selected?.attachments || []).filter(
+      (attachment) => attachment.status === 'stored' && attachment.mediaType.startsWith('image/'),
+    );
+    if (!images.length) {
+      setAttachmentUrls({});
+      return;
+    }
+    Promise.all(
+      images.map(async (attachment) => {
+        try {
+          const result = await api<{ url: string }>(
+            '/api/operator/conversations/' + selected!.id + '/attachments/' + attachment.id + '/url',
+          );
+          return [attachment.id, result.url] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) setAttachmentUrls(Object.fromEntries(entries.filter(Boolean) as Array<[string, string]>));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, selected?.attachments]);
   const login = async (e: FormEvent) => {
     e.preventDefault();
     setNotice('Entrando…');
@@ -132,6 +192,7 @@ export default function OperatorPage() {
       sessionStorage.setItem('operatorName', s.user.name);
       sessionStorage.setItem('operatorRole', s.user.role);
       setName(s.user.name);
+      setRole(s.user.role);
       await load();
       setLogged(true);
       setNotice('');
@@ -169,7 +230,7 @@ export default function OperatorPage() {
     [
       'Lead',
       visible.filter(
-        (c) => c.state !== 'closed' && c.route === 'commercial' && !c.assignedOperator,
+        (c) => (c.state !== 'closed' || c.route === 'commercial') && c.route === 'commercial' && !c.assignedOperator,
       ),
     ],
     [
@@ -177,12 +238,171 @@ export default function OperatorPage() {
       visible.filter((c) => c.state !== 'closed' && !!c.assignedOperator && !c.followUpAt),
     ],
     ['Retorno / atenção', visible.filter((c) => c.state !== 'closed' && !!c.followUpAt)],
-    ['Concluídos', visible.filter((c) => c.state === 'closed')],
+    ['Concluídos', visible.filter((c) => c.state === 'closed' && c.route !== 'commercial')],
   ] as [string, Conversation[]][];
-  const open = async (id: string) =>
-    setSelected(await api<Conversation>('/api/operator/conversations/' + id));
+  const open = async (id: string) => {
+    try {
+      setSelected(await api<Conversation>('/api/operator/conversations/' + id));
+      setBoardNotice('');
+    } catch (error) {
+      setBoardNotice(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível carregar este atendimento. Tente atualizar a fila.',
+      );
+    }
+  };
+  const moveToColumn = async (conversation: Conversation, target: BoardColumn) => {
+    if (movingId) return;
+    const isClosed = conversation.state === 'closed';
+    const current: BoardColumn = isClosed
+      ? 'closed'
+      : conversation.followUpAt
+        ? 'followup'
+        : conversation.assignedOperator
+          ? 'active'
+          : conversation.route === 'commercial'
+            ? 'lead'
+            : 'waiting';
+    if (target === current) return;
+    setBoardNotice('');
+
+    if (isClosed) {
+      setBoardNotice(
+        'Atendimentos concluídos são somente leitura. Reabra o atendimento antes de movê-lo.',
+      );
+      return;
+    }
+    if (
+      (target === 'waiting' || target === 'lead') &&
+      (current === 'active' || current === 'followup') &&
+      conversation.assignedOperator
+    ) {
+      if (conversation.assignedOperator !== name) {
+        setBoardNotice('Só é possível devolver à fila um atendimento que está atribuído a você.');
+        return;
+      }
+      if (target === 'lead' && conversation.route !== 'commercial') {
+        setBoardNotice('A etapa Lead é reservada para atendimentos classificados como comerciais.');
+        return;
+      }
+      if (target === 'waiting' && conversation.route === 'commercial') {
+        setBoardNotice(
+          'Este atendimento é comercial; ele permanece na etapa Lead quando devolvido.',
+        );
+        return;
+      }
+      setMovingId(conversation.id);
+      try {
+        await api('/api/operator/conversations/' + conversation.id + '/release', {
+          method: 'POST',
+        });
+        await load();
+        setBoardNotice('Atendimento devolvido à fila.');
+      } catch (error) {
+        setBoardNotice(
+          error instanceof Error ? error.message : 'Não foi possível devolver à fila.',
+        );
+      } finally {
+        setMovingId('');
+      }
+      return;
+    }
+    if (target === 'active') {
+      if (conversation.assignedOperator && conversation.assignedOperator !== name) {
+        setBoardNotice('Este atendimento já está em atendimento por outra pessoa.');
+        return;
+      }
+      setMovingId(conversation.id);
+      try {
+        if (!conversation.assignedOperator)
+          await api('/api/operator/conversations/' + conversation.id + '/claim', {
+            method: 'POST',
+          });
+        if (conversation.followUpAt)
+          await api('/api/operator/conversations/' + conversation.id + '/follow-up', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ followUpAt: null }),
+          });
+        await load();
+        setBoardNotice('Atendimento assumido por você.');
+      } catch (error) {
+        setBoardNotice(
+          error instanceof Error ? error.message : 'Não foi possível assumir o atendimento.',
+        );
+      } finally {
+        setMovingId('');
+      }
+      return;
+    }
+    if (target === 'followup') {
+      try {
+        await open(conversation.id);
+        setActionValue('');
+        setActionError('');
+        setActionKind('followup');
+        setBoardNotice('Escolha a data e o horário para agendar o retorno.');
+      } catch (error) {
+        setBoardNotice(
+          error instanceof Error ? error.message : 'Não foi possível abrir o atendimento.',
+        );
+      }
+      return;
+    }
+    if (target === 'closed') {
+      try {
+        await open(conversation.id);
+        setResolution('');
+        setCloseError('');
+        setCloseDialogOpen(true);
+        setBoardNotice('Registre a resolução para concluir o atendimento.');
+      } catch (error) {
+        setBoardNotice(
+          error instanceof Error ? error.message : 'Não foi possível abrir o atendimento.',
+        );
+      }
+      return;
+    }
+    if (target === 'waiting' || target === 'lead') {
+      if (target === 'lead' && conversation.route !== 'commercial') {
+        setBoardNotice('A etapa Lead é reservada para atendimentos classificados como comerciais.');
+        return;
+      }
+      if (target === 'waiting' && conversation.route === 'commercial') {
+        setBoardNotice(
+          'A etapa Aguardando não altera a classificação comercial deste atendimento.',
+        );
+        return;
+      }
+      if (current === 'followup') {
+        setMovingId(conversation.id);
+        try {
+          await api('/api/operator/conversations/' + conversation.id + '/follow-up', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ followUpAt: null }),
+          });
+          await load();
+          setBoardNotice('Retorno cancelado; atendimento voltou para a fila.');
+        } catch (error) {
+          setBoardNotice(
+            error instanceof Error ? error.message : 'Não foi possível cancelar o retorno.',
+          );
+        } finally {
+          setMovingId('');
+        }
+        return;
+      }
+    }
+    setBoardNotice('Essa mudança não está disponível para este atendimento.');
+  };
   const claim = async () => {
     if (!selected) return;
+    if ((selected.destinationArea === 'commercial' || selected.route === 'commercial') && !selected.assignedOperator) {
+      setBoardNotice('Leads comerciais são tratados diretamente pelo comercial.');
+      return;
+    }
     await api('/api/operator/conversations/' + selected.id + '/claim', { method: 'POST' });
     await load();
     await open(selected.id);
@@ -194,10 +414,19 @@ export default function OperatorPage() {
     await open(selected.id);
   };
   const openCloseDialog = () => {
+    if (!selected || (!selected.assignedOperator && !['admin', 'coordination'].includes(role))) {
+      setBoardNotice('Assuma o atendimento antes de encerrá-lo.');
+      return;
+    }
     setResolution('');
     setCloseError('');
     setCloseDialogOpen(true);
   };
+  const canActOnSelected =
+    !!selected &&
+    (!!selected.assignedOperator && selected.assignedOperator === name ||
+      ['admin', 'coordination'].includes(role));
+  const isCommercialLead = !!selected && (selected.destinationArea === 'commercial' || selected.route === 'commercial') && !selected.assignedOperator;
   const close = async () => {
     if (!selected) return;
     if (resolution.trim().length < 3) {
@@ -301,6 +530,7 @@ export default function OperatorPage() {
     const result = await api<{ url: string }>(
       '/api/operator/conversations/' + selected.id + '/attachments/' + attachment.id + '/url',
     );
+    setAttachmentUrls((current) => ({ ...current, [attachment.id]: result.url }));
     window.open(result.url, '_blank', 'noopener');
   };
   if (!logged)
@@ -389,7 +619,7 @@ export default function OperatorPage() {
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="toolbar">
-              <button type="button" className="btn alt" onClick={() => load()}>
+              <button type="button" className="btn alt" onClick={refresh}>
                 Atualizar fila
               </button>
             </div>
@@ -397,31 +627,91 @@ export default function OperatorPage() {
         </header>
         <div className="board">
           {groups.map(([title, rows]) => (
-            <section className="column" key={title}>
+            <section
+              className={
+                'column ' + (dropTarget === boardColumnByTitle[title] ? 'drop-target' : '')
+              }
+              key={title}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDropTarget(boardColumnByTitle[title]);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                  setDropTarget(null);
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const id = event.dataTransfer.getData('text/plain') || draggingId;
+                const card = items.find((item) => item.id === id);
+                setDropTarget(null);
+                setDraggingId('');
+                if (card) void moveToColumn(card, boardColumnByTitle[title]);
+              }}
+              aria-label={`${title}, ${rows.length} atendimentos. Solte um cartão aqui para mover.`}
+            >
               <div className="column-head">
                 <strong>{title}</strong>
                 <span>{rows.length}</span>
               </div>
               {rows.length ? (
                 rows.map((c) => (
-                  <button
-                    className={'case ' + (selected?.id === c.id ? 'selected' : '')}
-                    key={c.id}
-                    onClick={() => open(c.id)}
-                  >
-                    <strong>{c.contactName || c.contactPhone}</strong>
-                    <small>
-                      {c.destinationArea || c.route || 'Atendimento'} · {c.contactPhone}
-                    </small>
-                    <div className="badges">
-                      {c.suggestedPriority && (
-                        <span className={'badge ' + c.suggestedPriority.toLowerCase()}>
-                          {c.suggestedPriority}
-                        </span>
-                      )}
-                      {c.followUpAt && <span className="badge due">Retorno</span>}
-                    </div>
-                  </button>
+                  <div className="case-wrap" key={c.id}>
+                    <button
+                      className={
+                        'case ' +
+                        (selected?.id === c.id ? 'selected ' : '') +
+                        (draggingId === c.id ? 'dragging' : '')
+                      }
+                      draggable={!movingId}
+                      aria-label={`${c.contactName || c.contactPhone}. Arraste para outra etapa ou use Mover para.`}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', c.id);
+                        setDraggingId(c.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingId('');
+                        setDropTarget(null);
+                      }}
+                      onClick={() => open(c.id)}
+                    >
+                      <strong>{c.contactName || c.contactPhone}</strong>
+                      <small>
+                        {c.destinationArea || c.route || 'Atendimento'} · {c.contactPhone}
+                      </small>
+                      <div className="badges">
+                        {c.suggestedPriority && (
+                          <span className={'badge ' + c.suggestedPriority.toLowerCase()}>
+                            {c.suggestedPriority}
+                          </span>
+                        )}
+                        {c.followUpAt && <span className="badge due">Retorno</span>}
+                        {movingId === c.id && <span className="badge moving">Movendo…</span>}
+                      </div>
+                    </button>
+                    <label className="case-move-label">
+                      <span className="sr-only">Mover {c.contactName || c.contactPhone} para</span>
+                      <select
+                        className="case-move"
+                        value=""
+                        disabled={movingId === c.id}
+                        onChange={(event) => {
+                          const target = event.target.value as BoardColumn;
+                          event.target.value = '';
+                          if (target) void moveToColumn(c, target);
+                        }}
+                      >
+                        <option value="">Mover para…</option>
+                        {groups.map(([destination]) => (
+                          <option key={destination} value={boardColumnByTitle[destination]}>
+                            {destination}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 ))
               ) : (
                 <div className="empty">Nenhum atendimento nesta etapa</div>
@@ -429,6 +719,14 @@ export default function OperatorPage() {
             </section>
           ))}
         </div>
+        {boardNotice && (
+          <p className="board-notice" role="status" aria-live="polite">
+            {boardNotice}
+            <button type="button" onClick={() => setBoardNotice('')} aria-label="Fechar aviso">
+              ×
+            </button>
+          </p>
+        )}
       </section>
       <section className="workspace">
         {selected ? (
@@ -439,89 +737,105 @@ export default function OperatorPage() {
               <h2>{selected.contactName || selected.contactPhone}</h2>
               <div className="context">
                 <span>
-                  Status<b>{selected.assignedOperator || 'Aguardando alguém assumir'}</b>
+                  Status<b>{isCommercialLead ? 'Lead recebido pelo comercial' : selected.assignedOperator || 'Aguardando alguém assumir'}</b>
                 </span>
                 <span>
                   Área<b>{selected.destinationArea || selected.route || 'Atendimento'}</b>
                 </span>
-                {!selected.state || selected.state !== 'closed' ? <button
-                  type="button"
-                  className="btn"
-                  onClick={claim}
-                  disabled={selected.assignedOperator === name}
-                >
-                  {selected.assignedOperator === name
-                    ? 'Em atendimento por você'
-                    : 'Assumir atendimento'}
-                </button> : null}
-                {!selected.state || selected.state !== 'closed' ? <button
-                  type="button"
-                  className="btn alt"
-                  onClick={release}
-                  disabled={!selected.assignedOperator}
-                >
-                  Devolver à fila
-                </button> : null}
-                {selected.state !== 'closed' && <button type="button" className="btn danger" onClick={openCloseDialog}>
-                  Finalizar atendimento
-                </button>}
-                {selected.state !== 'closed' && <div className="quick-actions">
+                {!selected.state || selected.state !== 'closed' ? (
                   <button
                     type="button"
-                    className="action-link"
-                    onClick={() => {
-                      setActionValue('');
-                      setActionError('');
-                      setActionKind('followup');
-                    }}
+                    className="btn"
+                    onClick={claim}
+                    disabled={selected.assignedOperator === name || isCommercialLead}
                   >
-                    Agendar retorno
+                    {selected.assignedOperator === name
+                      ? 'Em atendimento por você'
+                      : isCommercialLead
+                        ? 'Lead comercial — sem assumir'
+                      : 'Assumir atendimento'}
                   </button>
-                  {selected.destinationArea === 'commercial' && (
-                    <>
-                      <button
-                        type="button"
-                        className="action-link"
-                        onClick={() =>
-                          api(
-                            '/api/operator/conversations/' +
+                ) : null}
+                {!isCommercialLead && (!selected.state || selected.state !== 'closed') ? (
+                  <button
+                    type="button"
+                    className="btn alt"
+                    onClick={release}
+                    disabled={!selected.assignedOperator}
+                  >
+                    Devolver à fila
+                  </button>
+                ) : null}
+                {!isCommercialLead && selected.state !== 'closed' && (
+                  <button
+                    type="button"
+                    className="btn danger"
+                    onClick={openCloseDialog}
+                    disabled={!canActOnSelected}
+                    title={!canActOnSelected ? 'Assuma o atendimento antes de encerrá-lo.' : undefined}
+                  >
+                    Finalizar atendimento
+                  </button>
+                )}
+                {(isCommercialLead || selected.state !== 'closed') && (
+                  <div className="quick-actions">
+                    {!isCommercialLead && <button
+                      type="button"
+                      className="action-link"
+                      onClick={() => {
+                        setActionValue('');
+                        setActionError('');
+                        setActionKind('followup');
+                      }}
+                    >
+                      Agendar retorno
+                    </button>}
+                    {selected.destinationArea === 'commercial' && (
+                      <>
+                        <button
+                          type="button"
+                          className="action-link"
+                          onClick={() =>
+                            api(
+                              '/api/operator/conversations/' +
                               selected.id +
                               '/commercial/sync-ploomes',
-                            { method: 'POST' },
-                          )
-                            .then(() => load())
-                            .catch((e) => setNotice(e.message))
-                        }
-                      >
-                        Incluir no Ploomes
-                      </button>
+                              { method: 'POST' },
+                            )
+                              .then(refresh)
+                              .catch((e) => setNotice(e.message))
+                          }
+                        >
+                          Cadastrar oportunidade
+                        </button>
+                        <button
+                          type="button"
+                          className="action-link"
+                          onClick={() => {
+                            setActionValue('');
+                            setActionError('');
+                            setActionKind('ploomesManual');
+                          }}
+                        >
+                          Cadastro manual
+                        </button>
+                      </>
+                    )}
+                    {['technical', 'on_call'].includes(selected.destinationArea || '') && (
                       <button
                         type="button"
                         className="action-link"
                         onClick={() => {
                           setActionValue('');
                           setActionError('');
-                          setActionKind('ploomesManual');
+                          setActionKind('serviceOrder');
                         }}
                       >
-                        Registro manual
+                        Registrar OS manual
                       </button>
-                    </>
-                  )}
-                  {['technical', 'on_call'].includes(selected.destinationArea || '') && (
-                    <button
-                      type="button"
-                      className="action-link"
-                      onClick={() => {
-                        setActionValue('');
-                        setActionError('');
-                        setActionKind('serviceOrder');
-                      }}
-                    >
-                      Registrar OS manual
-                    </button>
-                  )}
-                </div>}
+                    )}
+                  </div>
+                )}
               </div>
             </header>
             {!!selected.attachments?.length && (
@@ -529,6 +843,14 @@ export default function OperatorPage() {
                 <strong>Anexos</strong>
                 {selected.attachments.map((attachment) => (
                   <div className="attachment-wrap" key={attachment.id}>
+                    {attachmentUrls[attachment.id] && attachment.mediaType.startsWith('image/') && (
+                      <img
+                        className="attachment-preview"
+                        src={attachmentUrls[attachment.id]}
+                        alt={attachment.fileName}
+                        onClick={() => window.open(attachmentUrls[attachment.id], '_blank', 'noopener')}
+                      />
+                    )}
                     <button
                       type="button"
                       className="attachment"
@@ -571,17 +893,19 @@ export default function OperatorPage() {
             {selected.state === 'closed' ? (
               <div className="closed-notice">
                 <span>Atendimento concluído. O histórico está preservado.</span>
-                <button className="btn" onClick={reopen}>Reabrir atendimento</button>
+                <button className="btn" onClick={reopen}>
+                  Reabrir atendimento
+                </button>
               </div>
             ) : (
               <form className="composer" onSubmit={send}>
                 <textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Digite uma mensagem para enviar…"
-                  disabled={sending}
+                  placeholder={isCommercialLead ? 'Lead tratado diretamente pelo comercial.' : canActOnSelected ? 'Digite uma mensagem para enviar…' : 'Assuma o atendimento para responder…'}
+                  disabled={sending || !canActOnSelected}
                 />
-                <button className="btn" disabled={sending || !text.trim()}>
+                <button className="btn" disabled={sending || !text.trim() || !canActOnSelected}>
                   {sending ? 'Enviando…' : 'Enviar'}
                 </button>
                 {sendError && <small className="form-error">{sendError}</small>}
