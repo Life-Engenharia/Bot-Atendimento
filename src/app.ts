@@ -1,8 +1,9 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -181,6 +182,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
           : undefined,
       )
     : undefined;
+  const ploomesClient = environment.PLOOMES_USER_KEY
+    ? new PloomesClient(environment.PLOOMES_USER_KEY)
+    : undefined;
   const persistedMenuService =
     dependencies.persistedMenuService ??
     (supabaseStore
@@ -194,13 +198,15 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
           operationalNotifier,
           () => operatorEvents.emit('inbox'),
           operationalConfigurationStore,
+          environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
+          ploomesClient,
         )
       : undefined);
   const commercialSyncService =
     supabaseStore && environment.PLOOMES_USER_KEY
       ? new CommercialPloomesSyncService(
           supabaseStore,
-          new PloomesClient(environment.PLOOMES_USER_KEY),
+          ploomesClient!,
         )
       : undefined;
   const app = Fastify({
@@ -290,7 +296,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       done(new Error('JSON inválido.'));
     }
   });
-  const openApiPath = fileURLToPath(new URL('../docs/api/openapi.yaml', import.meta.url));
+  const bundledOpenApiPath = fileURLToPath(new URL('../docs/api/openapi.yaml', import.meta.url));
+  const sourceOpenApiPath = resolve(dirname(fileURLToPath(import.meta.url)), '../..', 'docs/api/openapi.yaml');
+  const openApiPath = existsSync(bundledOpenApiPath) ? bundledOpenApiPath : sourceOpenApiPath;
 
   app.register(fastifySwagger, {
     mode: 'static',
@@ -473,7 +481,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     return reply.code(201).send({ created: true });
   });
 
-  app.post<{ Params: { id: string }; Body: unknown }>(
+  app.post<{ Params: { id: string }; Querystring: { force?: string }; Body: unknown }>(
     '/api/admin/users/:id',
     async (request, reply) => {
       if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
@@ -1129,6 +1137,14 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       )
         return reply.code(409).send({ error: 'Assuma a conversa antes de encerrá-la.' });
       const { resolutionNote } = closeConversationSchema.parse(request.body);
+      if ((request.query as { force?: string }).force === 'true') {
+        if (actor.role !== 'admin')
+          return reply.code(403).send({ error: 'Somente administradores podem forçar o encerramento.' });
+        await supabaseStore.closeConversation(conversation.id, actor.name, `${resolutionNote} (encerramento forçado: número inexistente ou indisponível)`);
+        logCorrelation(app, { requestId: request.id, conversationId: conversation.id, action: 'operator.conversation_force_closed' });
+        operatorEvents.emit('inbox');
+        return reply.code(204).send();
+      }
       const completionMessage = `Seu atendimento${conversation.protocolId ? ` ${conversation.protocolId}` : ''} foi concluído pela equipe Life.\n\nResumo: ${resolutionNote}\n\nA equipe responsável foi informada e o registro foi encerrado. A solução atendeu sua necessidade?`;
       if (!outboundSender)
         return reply.code(503).send({ error: 'WhatsApp indisponível; o atendimento não foi concluído.' });

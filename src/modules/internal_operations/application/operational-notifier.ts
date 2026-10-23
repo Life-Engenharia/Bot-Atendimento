@@ -13,7 +13,7 @@ export class OperationalNotifier {
     private readonly store: SupabaseConversationStore,
     private readonly sender: OutboundSender | undefined,
     private readonly destinations: { commercial?: string; technical?: string },
-  ) {}
+  ) { }
 
   async commercial(reference: string, conversation: StoredConversation): Promise<void> {
     await this.send('commercial', reference, conversation, [
@@ -50,20 +50,23 @@ export class OperationalNotifier {
   ): Promise<void> {
     const destination = this.destinations[area];
     if (!destination || !this.sender) return;
-    const title = area === 'commercial' ? 'NOVA POSSÍVEL PROPOSTA' : 'NOVO CHAMADO TÉCNICO';
-    const text = [title, `Protocolo: ${reference}`, ...lines, '', 'Abra a Central de Operação para assumir e registrar a ação.'].join('\n');
+    const title = area === 'commercial' ? '*NOVA POSSÍVEL PROPOSTA*' : '*NOVO CHAMADO TÉCNICO*';
+    const action = area === 'commercial'
+      ? [
+          '',
+          '*Ação*',
+          'Entre em contato com o cliente pelo WhatsApp:',
+          `https://wa.me/${toWhatsAppLink(conversation.context.contactPhone)}`,
+          '',
+          '*Ploomes*',
+          'Use os botões “Cadastrar oportunidade” ou “Cadastro manual” no Operator.',
+        ]
+      : ['', 'Abra a Central de Operação para assumir e registrar a ação.'];
+    const text = [title, '', '*Protocolo:*', `\`\`\`${reference}\`\`\``, '', ...lines, ...action].join('\n');
     try {
-      let delivery;
-      try {
-        delivery = await this.sender.sendText(destination, text);
-      } catch (firstError) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        try {
-          delivery = await this.sender.sendText(destination, text);
-        } catch {
-          throw firstError;
-        }
-      }
+      // Em falha de rede o resultado é ambíguo: a Meta pode ter aceitado o
+      // primeiro envio. Repetir aqui causava notificações duplicadas ao time.
+      const delivery = await this.sender.sendText(destination, text);
       await this.store.audit('operation.notification_sent', 'system', {
         area,
         conversationId: conversation.id,
@@ -81,4 +84,11 @@ export class OperationalNotifier {
       });
     }
   }
+}
+
+function toWhatsAppLink(value?: string): string {
+  const digits = (value ?? '').replace(/\D/g, '');
+  if (digits.startsWith('55')) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
 }
