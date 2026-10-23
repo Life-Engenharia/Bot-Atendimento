@@ -97,7 +97,7 @@ export type OperationalAlert = {
 };
 export type RetentionResult = { conversationsAnonymized: number; attachmentsDeleted: number };
 
-type Contact = { id: string };
+type Contact = { id: string; document_type?: 'cpf' | 'cnpj' | null; document_number?: string | null };
 type StoredMessage = { id: string; conversation_id?: string | null; processed_at?: string | null };
 export type WebhookJob = { id: string; message: IncomingMessage; attempts: number };
 
@@ -195,15 +195,15 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
 
     const contact = await this.upsertContact(message.from);
     const normalizedReply = (message.text ?? '').trim().toLowerCase();
+    // Botões da pesquisa são inequívocos. Números 1 e 2 só podem ser
+    // tratados como pesquisa quando a conversa já está encerrada; durante um
+    // novo ciclo eles são opções válidas dos menus (rota e serviços).
     const surveyCandidate =
       message.interactiveId === 'satisfaction_resolved' ||
-      message.interactiveId === 'satisfaction_partial' ||
-      normalizedReply === '1' ||
-      normalizedReply === '2';
-    const reopened =
+      message.interactiveId === 'satisfaction_partial';
+    let reopened =
       isReopenRequest(message.text ?? message.interactiveId) ||
-      message.interactiveId === 'satisfaction_partial' ||
-      normalizedReply === '2';
+      message.interactiveId === 'satisfaction_partial';
     let conversation: StoredConversation;
     if (inserted[0].conversation_id) {
       const recovered = await this.request<Array<StoredConversation & { assigned_operator?: string | null }>>(
@@ -217,9 +217,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     } else {
       conversation = await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
     }
+    const numericSurveyCandidate =
+      conversation.state === 'closed' && (normalizedReply === '1' || normalizedReply === '2');
+    if (numericSurveyCandidate) {
+      reopened = normalizedReply === '2';
+    }
+    // Qualquer nova mensagem após um atendimento encerrado inicia um novo ciclo.
+    // Mantemos a resposta de satisfação (1/2 ou botões) como exceção para não
+    // transformar a pesquisa em um novo atendimento por engano.
+    if (conversation.state === 'closed' && !surveyCandidate && normalizedReply) {
+      conversation.state = 'consent';
+      conversation.route = null;
+      conversation.context = {};
+    }
     const surveyResponse =
       conversation.state === 'closed' &&
-        (message.interactiveId === 'satisfaction_resolved' || normalizedReply === '1')
+        (message.interactiveId === 'satisfaction_resolved' || numericSurveyCandidate && normalizedReply === '1')
         ? 'resolved'
         : undefined;
     await this.request(
@@ -967,6 +980,8 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
           body: JSON.stringify({
             name: context.contactName ?? null,
             company: context.company === 'pessoa física' ? null : (context.company ?? null),
+            document_type: context.cnpj ? (context.cnpj.replace(/\\D/g, '').length === 11 ? 'cpf' : 'cnpj') : null,
+            document_number: context.cnpj ? context.cnpj.replace(/[^0-9A-Z]/gi, '').toUpperCase() : null,
             email: context.email === 'não informado' ? null : (context.email ?? null),
             consented_at: new Date().toISOString(),
           }),
@@ -974,7 +989,9 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         [204],
       );
     }
-    const assignee = await this.findEligibleUser('commercial');
+    // Comercial recebe o resumo diretamente no número configurado e trabalha
+    // fora da fila humana. A conversa continua visível em Leads para auditoria,
+    // mas nunca exige que alguém a assuma no Operator.
     await this.request(
       `conversations?id=eq.${encodeURIComponent(conversation.id)}`,
       {
@@ -983,7 +1000,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
           protocol_id: protocolId,
           state: 'queued',
           destination_area: 'commercial',
-          assigned_user_id: assignee?.id ?? null,
+          assigned_user_id: null,
           handoff_reason: 'commercial_protocol',
         }),
       },
@@ -993,7 +1010,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       protocolId,
       reference,
       route: 'commercial',
-      assignedUserId: assignee?.id,
+      assignedUserId: null,
     });
     return reference;
   }

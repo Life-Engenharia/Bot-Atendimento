@@ -150,7 +150,7 @@ describe('persisted menu service', () => {
     for (const [index, text] of messages.entries())
       await service.process([{ id: `wamid-commercial-${index}`, from: '+5511999999999', text }]);
 
-    expect(store.conversation.state).toBe('queued');
+    expect(store.conversation.state).toBe('closed');
     expect(store.protocols).toEqual(['LFE-TEST-0001']);
     expect(store.outbound.at(-1)).toContain('LFE-TEST-0001');
   });
@@ -216,10 +216,10 @@ describe('persisted menu service', () => {
     ]);
 
     expect(store.conversation).toMatchObject({
-      route: 'commercial',
+      route: 'technical',
       context: { service: 'Assistência avulsa', location: 'Unidade Norte' },
     });
-    expect(result.responses[0].text).toContain('assistência avulsa');
+    expect(result.responses[0].text).toContain('assistência técnica avulsa');
     expect(store.audits).toContain('technical.assistance_avulsa_routed');
   });
 
@@ -235,7 +235,7 @@ describe('persisted menu service', () => {
 
     await service.process([{ id: 'wamid-unknown-history', from: '+5511999999999', text: 'não sei' }]);
 
-    expect(store.conversation.route).toBe('commercial');
+    expect(store.conversation.route).toBe('technical');
     expect(store.conversation.context.service).toBe('Assistência avulsa');
   });
 

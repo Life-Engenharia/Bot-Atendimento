@@ -54,6 +54,14 @@ const humanMessage =
   'Claro! Vou encaminhar sua solicitação para uma pessoa da equipe Life. Assim que possível, ela seguirá com você por aqui.';
 
 export class PersistedMenuService {
+  /**
+   * Serializa o processamento por contato mesmo quando o webhook recebe
+   * lotes concorrentes ou o servidor dispara mais de um dreno da fila.
+   * Sem essa barreira, respostas rápidas podem avançar várias etapas do
+   * menu antes de a resposta anterior ser persistida.
+   */
+  private readonly contactLocks = new Map<string, Promise<void>>();
+
   constructor(
     private readonly store: SupabaseConversationStore,
     private readonly administrativeMenu?: AdministrativeMenuService,
@@ -64,9 +72,49 @@ export class PersistedMenuService {
     private readonly operationalNotifier?: OperationalNotifier,
     private readonly onInboundPersisted?: () => void,
     private readonly operationalConfigurationStore?: OperationalConfigurationStore,
+    private readonly commercialNotificationPhone?: string,
+    private readonly commercialDirectory?: {
+      findContactByDocument(document: string): Promise<Record<string, unknown> | undefined>;
+    },
   ) {}
 
   async process(
+    messages: IncomingMessage[],
+  ): Promise<WebhookResult & { responses: BotResponse[] }> {
+    const groups = new Map<string, IncomingMessage[]>();
+    for (const message of messages) {
+      const group = groups.get(message.from) ?? [];
+      group.push(message);
+      groups.set(message.from, group);
+    }
+
+    const results = await Promise.all([...groups.entries()].map(async ([from, group]) => {
+      const previous = this.contactLocks.get(from) ?? Promise.resolve();
+      let release!: () => void;
+      const current = new Promise<void>((resolve) => { release = resolve; });
+      const chain = previous.then(() => current);
+      this.contactLocks.set(from, chain);
+      await previous;
+      try {
+        return await this.processUnlocked(group);
+      } finally {
+        release();
+        if (this.contactLocks.get(from) === chain) this.contactLocks.delete(from);
+      }
+    }));
+
+    return results.reduce(
+      (acc, result) => ({
+        processed: acc.processed + result.processed,
+        duplicates: acc.duplicates + result.duplicates,
+        acceptedMessages: [...acc.acceptedMessages, ...result.acceptedMessages],
+        responses: [...acc.responses, ...result.responses],
+      }),
+      { processed: 0, duplicates: 0, acceptedMessages: [] as IncomingMessage[], responses: [] as BotResponse[] },
+    );
+  }
+
+  private async processUnlocked(
     messages: IncomingMessage[],
   ): Promise<WebhookResult & { responses: BotResponse[] }> {
     let processed = 0;
@@ -173,7 +221,17 @@ export class PersistedMenuService {
       tech_edit_asset: 'editar patrimônio',
       tech_edit_alarm: 'editar alarme',
     };
-    const input = (interactionText[message.interactiveId ?? ''] ?? message.text ?? '').trim();
+    // O mesmo botão "human" aparece em duas etapas com códigos textuais
+    // diferentes: no consentimento, 2 significa falar com uma pessoa; no
+    // menu de rota, 3 é a opção humana. Preserve o id da interação para não
+    // transformar a escolha humana em assistência técnica.
+    const interactionValue =
+      message.interactiveId === 'human'
+        ? conversation.state === 'consent'
+          ? '2'
+          : '3'
+        : (interactionText[message.interactiveId ?? ''] ?? message.text ?? '');
+    const input = interactionValue.trim();
     const text = normalize(input);
     const firstGreeting =
       conversation.state === 'consent' && !conversation.context.greetingImageSent;
@@ -417,10 +475,9 @@ export class PersistedMenuService {
             conversation.context[nextField] = canonicalTechnicalAnswer(nextField, input);
             delete conversation.context.editingTechnicalField;
             if (nextField === 'contractReference' && hasNoLifeHistory(input)) {
-              conversation.route = 'commercial';
               conversation.context.service = 'Assistência avulsa';
               responseText =
-                'Entendi. Como não há contrato ou histórico Life identificado, vou encaminhar como assistência avulsa para o Comercial, sem perder os dados que você já informou. Informe o CNPJ ou responda “pessoa física”.';
+                'Entendi. Como não há contrato ou histórico Life identificado, vou registrar este chamado como assistência técnica avulsa e encaminhá-lo para a equipe técnica. Sem perder os dados que você já informou, informe o CNPJ ou responda “pessoa física”.';
               await this.store.audit('technical.assistance_avulsa_routed', 'rules', {
                 phone: message.from,
               });
@@ -474,6 +531,10 @@ export class PersistedMenuService {
           } else if (nextField === 'contactPhone' && !isValidPhone(value)) {
             responseText =
               'Informe o telefone com DDD, somente números ou no formato +55 79 99999-9999.';
+          } else if (nextField === 'company' && isGreetingOnly(value)) {
+            // Mensagens atrasadas/duplicadas (ex.: "oi") não podem virar o nome
+            // da empresa quando o cliente ainda está respondendo ao cadastro.
+            responseText = commercialQuestion('company');
           } else {
             conversation.context[nextField] =
               nextField === 'email' && normalize(value) === 'pular'
@@ -481,9 +542,34 @@ export class PersistedMenuService {
                 : nextField === 'cnpj' && isOptionalDocumentAnswer(value)
                   ? 'pendente de confirmação'
                   : value;
+            if (nextField === 'cnpj' && !isOptionalDocumentAnswer(value) && this.commercialDirectory) {
+              try {
+                const contact = await this.commercialDirectory.findContactByDocument(value);
+                if (contact) {
+                  conversation.context.company = String(contact.CompanyName ?? contact.LegalName ?? contact.Name ?? '');
+                  conversation.context.contactName = String(contact.Name ?? conversation.context.contactName ?? '');
+                  if (contact.Phone && !conversation.context.contactPhone)
+                    conversation.context.contactPhone = String(contact.Phone);
+                  if (contact.Email && !conversation.context.email)
+                    conversation.context.email = String(contact.Email);
+                  await this.store.audit('commercial.contact_found_by_document', 'ploomes', {
+                    phone: message.from,
+                    document: value,
+                    ploomesId: contact.Id,
+                  });
+                }
+              } catch {
+                // A CRM lookup must never block the customer flow.
+              }
+            }
             delete conversation.context.editingField;
             const followingField = nextCommercialField(conversation);
-            if (followingField) responseText = commercialQuestion(followingField);
+            if (followingField) {
+              responseText =
+                nextField === 'cnpj' && isOptionalDocumentAnswer(value)
+                  ? 'Tudo bem, deixaremos o CPF/CNPJ pendente de confirmação. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.'
+                  : commercialQuestion(followingField);
+            }
             else {
               conversation.state = 'review';
               responseText = commercialSummary(conversation);
@@ -497,9 +583,15 @@ export class PersistedMenuService {
     } else if (conversation.state === 'review' && conversation.route === 'commercial') {
       if (text === 'confirmar' || text === 'sim') {
         const reference = await this.store.createCommercialProtocol(conversation, message.id);
-        conversation.state = 'queued';
+        // O atendimento automático termina aqui. O Lead continua visível no
+        // Operator para o Comercial, mas novas mensagens poderão iniciar um
+        // novo ciclo.
+        conversation.state = 'closed';
         void this.operationalNotifier?.commercial(reference, conversation).catch(() => undefined);
-        responseText = `Solicitação confirmada. Seu protocolo é ${reference}. A equipe comercial seguirá com você por aqui.${(await this.isOutsideBusinessHours('commercial')) ? ' Recebemos sua solicitação fora do horário comercial e ela será direcionada no próximo período de atendimento.' : ''}`;
+        const commercialPhone = this.commercialNotificationPhone
+          ? ` pelo número ${formatPhoneForDisplay(this.commercialNotificationPhone)}`
+          : '';
+        responseText = `Solicitação confirmada. Seu protocolo é ${reference}. O comercial da Life Engenharia entrará em contato com você${commercialPhone}.${(await this.isOutsideBusinessHours('commercial')) ? ' Recebemos sua solicitação fora do horário comercial e o retorno será feito no próximo período de atendimento.' : ''}`;
       } else if (isBroadEditRequest(text)) {
         conversation.state = 'collecting';
         conversation.context.selectingEditField = true;
@@ -702,8 +794,8 @@ type CommercialContextField =
 const commercialFields: CommercialContextField[] = [
   'location',
   'contactName',
-  'company',
   'cnpj',
+  'company',
   'contactPhone',
   'email',
   'timeline',
@@ -896,7 +988,7 @@ function commercialQuestion(field: CommercialContextField): string {
   const questions: Record<CommercialContextField, string> = {
     location: 'Em qual cidade e unidade será o atendimento?',
     contactName: 'Qual é o seu nome para identificação?',
-    company: 'Qual é a empresa ou instituição? Se for pessoa física, responda “pessoa física”.',
+    company: 'Não localizei esse documento no cadastro. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.',
     cnpj:
       'Você sabe o CNPJ da empresa? Envie os 14 dígitos ou responda “não sei” para continuar e deixar essa informação pendente de confirmação.',
     contactPhone: 'Qual telefone devemos usar para retorno?',
@@ -985,6 +1077,13 @@ function isHuman(value: string): boolean {
     value.includes('atendente') ||
     value.includes('humano')
   );
+}
+
+function formatPhoneForDisplay(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 13 && digits.startsWith('55'))
+    return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+  return value;
 }
 
 function inferRoute(message?: string): 'commercial' | 'technical' | undefined {
@@ -1191,6 +1290,10 @@ function isOptionalDocumentAnswer(value: string): boolean {
     normalized === 'pessoa fisica' ||
     normalized.startsWith('sou pessoa fisica')
   );
+}
+
+function isGreetingOnly(value: string): boolean {
+  return /^(oi|olá|ola|bom dia|boa tarde|boa noite|hey|hello)[!,. ]*$/i.test(value.trim());
 }
 
 function scheduleIncludesDay(days: string, weekday: string): boolean {
