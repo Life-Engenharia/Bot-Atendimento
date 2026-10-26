@@ -537,7 +537,7 @@ export default function OperatorPage() {
     return (
       <main className="login">
         <form className="login-card" action="/api/operator/login" method="post" onSubmit={login}>
-          <img className="logo" src={apiBase + '/assets/life-logo.png'} alt="Life Engenharia" />
+          <img className="logo" src="/life-logo.png" alt="Life Engenharia" />
           <p className="eyebrow">Central de atendimento</p>
           <h1>Bem-vindo de volta</h1>
           <p>Entre para acompanhar, assumir e responder aos atendimentos.</p>
@@ -574,7 +574,7 @@ export default function OperatorPage() {
     <main className="app">
       <aside className="rail">
         <div className="brand">
-          <img src={apiBase + '/assets/life-logo.png'} alt="Life Engenharia" />
+          <img src="/life-logo.png" alt="Life Engenharia" />
           <div>
             <strong>Life Engenharia</strong>
             <small>Central de atendimento</small>
