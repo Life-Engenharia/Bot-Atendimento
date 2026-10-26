@@ -6,7 +6,7 @@ import {
   commercialServices,
   commercialServiceByOption,
   commercialServiceMenu,
-} from '../../commercial/domain/commercial-services.js';
+} from '../../commercial/domain/commercial-services.js'; 
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
@@ -76,7 +76,7 @@ export class PersistedMenuService {
     private readonly commercialDirectory?: {
       findContactByDocument(document: string): Promise<Record<string, unknown> | undefined>;
     },
-  ) {}
+  ) { }
 
   async process(
     messages: IncomingMessage[],
@@ -138,11 +138,11 @@ export class PersistedMenuService {
       if (administrativeResponse) await this.store.markInboundProcessed(message.id);
       responses.push(
         administrativeResponse ??
-          (accepted.surveyResponse === 'resolved'
-            ? await this.handleResolutionSurvey(message, accepted.conversation)
-            : accepted.reopened
-              ? await this.handleReopened(message, accepted.conversation)
-              : await this.handle(message, accepted.conversation)),
+        (accepted.surveyResponse === 'resolved'
+          ? await this.handleResolutionSurvey(message, accepted.conversation)
+          : accepted.reopened
+            ? await this.handleReopened(message, accepted.conversation)
+            : await this.handle(message, accepted.conversation)),
       );
     }
     return { processed, duplicates, acceptedMessages, responses };
@@ -283,12 +283,20 @@ export class PersistedMenuService {
         message.id,
       );
     }
-    if (['reiniciar', 'recomeçar', 'recomecar', 'menu', 'início', 'inicio'].includes(text)) {
-      if (
-        conversation.state === 'queued' ||
-        conversation.state === 'human' ||
-        Boolean(conversation.assignedOperator)
-      ) {
+    // Saudações isoladas também iniciam uma nova sessão quando o contato ficou
+    // preso em uma etapa automática anterior. Não fazemos isso em atendimentos
+    // humanos/enfileirados, para nunca apagar uma conversa assumida pela equipe.
+    const restartCommand = ['reiniciar', 'recomeçar', 'recomecar', 'menu', 'início', 'inicio'].includes(
+      text.replace(/^\//, ''),
+    );
+    const staleGreeting = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite'].includes(text)
+      && ['collecting', 'review', 'closed'].includes(conversation.state);
+    if (restartCommand || staleGreeting) {
+      // A queued conversation without an assigned operator is still safe to
+      // restart: it has not been assumed by a human yet. Keep the guard for
+      // human/assigned cases so a customer can never orphan an active team
+      // handoff or make messages race with the operator.
+      if (conversation.state === 'human' || Boolean(conversation.assignedOperator)) {
         return this.finish(
           conversation,
           message.from,
@@ -408,7 +416,12 @@ export class PersistedMenuService {
           'Não reconheci esse serviço. Escolha um item da lista, envie o número de 1 a 10 ou digite o nome do serviço (por exemplo: Projetos).';
       else {
         conversation.context.service = service;
-        responseText = `Perfeito, você selecionou ${service}. Em qual cidade e unidade será o atendimento?`;
+        if (service === 'Outro serviço') {
+          conversation.context.awaitingCustomService = true;
+          responseText = 'Perfeito. Qual outro serviço você procura? Descreva brevemente o serviço.';
+        } else {
+          responseText = `Perfeito, você selecionou ${service}. Em qual cidade e unidade será o atendimento?`;
+        }
         await this.store.audit('commercial.service_selected', 'customer', {
           phone: message.from,
           service,
@@ -417,7 +430,23 @@ export class PersistedMenuService {
     } else if (conversation.state === 'collecting' && conversation.route === 'technical') {
       const editing = conversation.context.editingTechnicalField as
         TechnicalContextField | undefined;
-      if (conversation.context.selectingTechnicalEditField) {
+      if (conversation.context.awaitingTechnicalDocument) {
+        if (!isValidCnpjOrCpf(input) && !isOptionalDocumentAnswer(input)) {
+          responseText = 'Informe um CPF válido com 11 dígitos ou CNPJ válido com 14 caracteres, ou responda “pessoa física”.';
+        } else {
+          delete conversation.context.awaitingTechnicalDocument;
+          if (!isOptionalDocumentAnswer(input)) {
+            conversation.context.cnpj = input.replace(/[^0-9A-Z]/gi, '').toUpperCase();
+            const contact = await this.commercialDirectory?.findContactByDocument(input).catch(() => undefined);
+            const companyName = contact
+              ? String(contact.CompanyName ?? contact.LegalName ?? contact.TradeName ?? contact.Name ?? '').trim()
+              : '';
+            if (companyName) conversation.context.company = companyName;
+          }
+          const following = nextTechnicalField(conversation);
+          responseText = following ? technicalQuestion(following, conversation) : technicalQuestion('equipment', conversation);
+        }
+      } else if (conversation.context.selectingTechnicalEditField) {
         if (text === 'editar outros dados' || text === 'mais dados técnicos') {
           delete conversation.context.selectingTechnicalEditField;
           conversation.context.selectingTechnicalEditMore = true;
@@ -468,16 +497,67 @@ export class PersistedMenuService {
             nextField === 'operationalImpact' &&
             hasImpactConflict(conversation.context.symptom, input)
           ) {
+            // Persist the normalized answer before asking for confirmation. If
+            // the conversation is reloaded between webhook deliveries, the
+            // next message must not re-enter this same conflict branch.
+            conversation.context.operationalImpact = canonicalTechnicalAnswer(
+              nextField,
+              input,
+            );
             conversation.context.impactConfirmation = input;
             responseText =
               'Só para confirmar a urgência: você informou que o equipamento “apagou de vez”, mas agora mencionou operação parcial. Ele está TOTALMENTE PARADO, PARCIALMENTE OPERANTE ou já voltou a FUNCIONAR?';
           } else {
             conversation.context[nextField] = canonicalTechnicalAnswer(nextField, input);
+            let technicalCompanyResponse: string | undefined;
+            // Na triagem técnica, o cliente pode informar o CNPJ no campo
+            // "empresa". Quando houver cadastro, resolvemos o nome oficial
+            // antes de seguir, evitando salvar o documento como se fosse o
+            // nome da empresa e exibindo a confirmação para o cliente.
+            if (nextField === 'company' && isValidCnpjOrCpf(input)) {
+              conversation.context.cnpj = input.replace(/[^0-9A-Z]/gi, '').toUpperCase();
+              try {
+                const contact = await this.commercialDirectory?.findContactByDocument(input);
+                const companyName = contact
+                  ? String(contact.CompanyName ?? contact.LegalName ?? contact.TradeName ?? contact.Name ?? '').trim()
+                  : '';
+                if (companyName) {
+                  conversation.context.company = companyName;
+                  if (contact?.Name && !conversation.context.contactName)
+                    conversation.context.contactName = String(contact.Name);
+                  if (contact?.Phone && !conversation.context.contactPhone)
+                    conversation.context.contactPhone = String(contact.Phone);
+                  if (contact?.Email && !conversation.context.email)
+                    conversation.context.email = String(contact.Email);
+                  await this.store.audit('technical.contact_found_by_document', 'ploomes', {
+                    phone: message.from,
+                    document: conversation.context.cnpj,
+                    ploomesId: contact?.Id,
+                  });
+                  technicalCompanyResponse = `Encontrei o cadastro *${companyName}* para o documento informado. Vou usar esses dados no chamado.\n\n${technicalQuestion('location', conversation)}`;
+                } else {
+                  conversation.context.company = '';
+                  technicalCompanyResponse = 'Não localizei esse documento no cadastro. Qual é o nome da empresa ou instituição responsável pela unidade?';
+                }
+              } catch {
+                conversation.context.company = '';
+                technicalCompanyResponse = 'Não consegui consultar o cadastro agora. Qual é o nome da empresa ou instituição responsável pela unidade?';
+              }
+            }
             delete conversation.context.editingTechnicalField;
-            if (nextField === 'contractReference' && hasNoLifeHistory(input)) {
+            if (technicalCompanyResponse) {
+              responseText = technicalCompanyResponse;
+            } else if (nextField === 'contractReference' && hasNoLifeHistory(input)) {
               conversation.context.service = 'Assistência avulsa';
-              responseText =
-                'Entendi. Como não há contrato ou histórico Life identificado, vou registrar este chamado como assistência técnica avulsa e encaminhá-lo para a equipe técnica. Sem perder os dados que você já informou, informe o CNPJ ou responda “pessoa física”.';
+              if (conversation.context.cnpj) {
+                responseText =
+                  'Entendi. Como não há contrato ou histórico Life identificado, vou registrar este chamado como assistência técnica avulsa e encaminhá-lo para a equipe técnica. Vou manter o documento já informado.\n\n' +
+                  technicalQuestion('equipment', conversation);
+              } else {
+                conversation.context.awaitingTechnicalDocument = true;
+                responseText =
+                  'Entendi. Como não há contrato ou histórico Life identificado, vou registrar este chamado como assistência técnica avulsa e encaminhá-lo para a equipe técnica. Informe o CNPJ/CPF para localizar o cadastro ou responda “pessoa física”.';
+              }
               await this.store.audit('technical.assistance_avulsa_routed', 'rules', {
                 phone: message.from,
               });
@@ -499,6 +579,19 @@ export class PersistedMenuService {
         }
       }
     } else if (conversation.state === 'collecting' && conversation.route === 'commercial') {
+      if (conversation.context.awaitingCustomService) {
+        if (input.length < 3) {
+          responseText = 'Descreva brevemente qual outro serviço você procura (por exemplo: instalação de automação predial).';
+        } else {
+          conversation.context.customService = input;
+          delete conversation.context.awaitingCustomService;
+          responseText = commercialQuestion('location');
+          await this.store.audit('commercial.custom_service_described', 'customer', {
+            phone: message.from,
+            customService: input,
+          });
+        }
+      } else {
       const editing = conversation.context.editingField as CommercialContextField | undefined;
       if (conversation.context.selectingEditField) {
         const field = commercialFieldFromLabel(stripEditPrefix(text));
@@ -579,6 +672,7 @@ export class PersistedMenuService {
             }
           }
         }
+      }
       }
     } else if (conversation.state === 'review' && conversation.route === 'commercial') {
       if (text === 'confirmar' || text === 'sim') {
@@ -661,6 +755,9 @@ export class PersistedMenuService {
       responseText = isThanks(text)
         ? 'Por nada! Sua solicitação já está registrada com a equipe comercial. Se lembrar de algum detalhe útil, pode enviar por aqui.'
         : 'Sua solicitação comercial já foi registrada. Você pode enviar informações adicionais por aqui enquanto aguarda o retorno da equipe.';
+    else if (conversation.state === 'closed' && conversation.route === 'commercial')
+      responseText =
+        'Sua solicitação já foi confirmada e encaminhada para a equipe comercial. Para abrir um novo atendimento, envie “reiniciar”.';
     else
       responseText =
         'Perfeito, recebi sua escolha. Vamos seguir com as próximas informações por aqui.';
@@ -702,12 +799,12 @@ export class PersistedMenuService {
       const send = () =>
         list && this.outboundSender!.sendList
           ? this.outboundSender!.sendList(
-              to,
-              text,
-              selectingCorrection ? 'Corrigir dado' : 'Ver serviços',
-              list,
-              selectingCorrection ? 'Dados para corrigir' : 'Serviços',
-            )
+            to,
+            text,
+            selectingCorrection ? 'Corrigir dado' : 'Ver serviços',
+            list,
+            selectingCorrection ? 'Dados para corrigir' : 'Serviços',
+          )
           : buttons && this.outboundSender!.sendButtons
             ? this.outboundSender!.sendButtons(to, text, buttons)
             : this.outboundSender!.sendText(to, text);
@@ -1004,7 +1101,7 @@ function commercialSummary(conversation: StoredConversation): string {
   return [
     'Confira os dados da sua solicitação',
     '',
-    `Serviço: ${context.service}`,
+    `Serviço: ${context.service === 'Outro serviço' && context.customService ? `Outro serviço — ${context.customService}` : context.service}`,
     `Local: ${context.location}`,
     `Contato: ${context.contactName}`,
     `Empresa: ${context.company}`,
@@ -1116,7 +1213,7 @@ function describeMedia(media: NonNullable<IncomingMessage['media']>): string {
       media.map(
         (item) =>
           ({ image: 'uma imagem', audio: 'um áudio', video: 'um vídeo', document: 'um documento' })[
-            item.type
+          item.type
           ],
       ),
     ),
@@ -1189,11 +1286,15 @@ function interactiveButtons(
     conversation.state === 'collecting' &&
     conversation.route === 'technical' &&
     !conversation.context.operationalImpact &&
-    normalized.includes('equipamento está')
+    normalized.includes('totalmente parado') &&
+    normalized.includes('parcialmente operante') &&
+    normalized.includes('funcionando')
   )
     return [
       { id: 'impact_stopped', title: 'Totalmente parado' },
-      { id: 'impact_partial', title: 'Parcialmente operante' },
+      // Os títulos dos botões de resposta da Meta têm limite de 20 caracteres.
+      // O texto completo continua sendo aceito e normalizado no fluxo.
+      { id: 'impact_partial', title: 'Parcialmente ativo' },
       { id: 'impact_working', title: 'Funcionando' },
     ];
   if (
