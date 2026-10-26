@@ -1,0 +1,43 @@
+services:
+  bot-atendimento:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      # Keep the V8 heap below the container limit and leave headroom for
+      # native buffers, HTTP clients and the container runtime.
+      NODE_OPTIONS: --max-old-space-size=3072
+    mem_limit: 4g
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  uptime-kuma-data:
