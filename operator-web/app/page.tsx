@@ -2,9 +2,11 @@
 'use client';
 
 import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import CrmView from './crm-view';
 
 type Conversation = {
   id: string;
+  protocolId?: string | null;
   contactName?: string;
   contactPhone: string;
   state: string;
@@ -257,16 +259,7 @@ export default function OperatorPage() {
     [sound, setSound] = useState(false),
     [dark, setDark] = useState<boolean | null>(null),
     [nowMs, setNowMs] = useState(() => Date.now());
-  const [crmOpen, setCrmOpen] = useState(false),
-    [crmContacts, setCrmContacts] = useState<any[]>([]),
-    [crmDeals, setCrmDeals] = useState<any[]>([]),
-    [crmSearch, setCrmSearch] = useState(''),
-    [crmBusy, setCrmBusy] = useState(false),
-    [crmError, setCrmError] = useState(''),
-    [crmStatus, setCrmStatus] = useState(''),
-    [crmFormOpen, setCrmFormOpen] = useState(false),
-    [crmSaving, setCrmSaving] = useState(false),
-    [crmForm, setCrmForm] = useState({ name: '', company: '', document: '', phone: '', email: '' });
+  const [crmOpen, setCrmOpen] = useState(false);
   const selectedRef = useRef<Conversation | null>(null);
   selectedRef.current = selected;
   const audioRef = useRef<AudioContext | null>(null);
@@ -1340,53 +1333,6 @@ export default function OperatorPage() {
     : shownGroups
         .map(([, rows]) => (rows.length ? 'minmax(230px, 1fr)' : 'minmax(150px, 0.45fr)'))
         .join(' ');
-  const loadCrm = async (search = '') => {
-    setCrmBusy(true);
-    setCrmError('');
-    setCrmStatus('');
-    try {
-      const query = search.trim();
-      const response = await api<{ contacts: any[]; source: string }>(
-        '/api/operator/crm/contacts' + (query ? '?q=' + encodeURIComponent(query) : ''),
-      );
-      setCrmContacts(response.contacts || []);
-      const overview = await api<{ connected: boolean; overview?: { deals: any[] } }>('/api/operator/crm/overview');
-      setCrmDeals(overview.overview?.deals || []);
-      if (!overview.connected) setCrmStatus('Configure PLOOMES_USER_KEY no backend para conectar o Ploomes.');
-    } catch (error) {
-      setCrmError(error instanceof Error ? error.message : 'Não foi possível consultar o Ploomes.');
-      setCrmContacts([]);
-      setCrmDeals([]);
-    } finally {
-      setCrmBusy(false);
-    }
-  };
-  useEffect(() => {
-    if (crmOpen) void loadCrm(crmSearch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crmOpen]);
-  const saveCrmCustomer = async (event: FormEvent) => {
-    event.preventDefault();
-    setCrmSaving(true);
-    setCrmError('');
-    setCrmStatus('');
-    try {
-      const response = await api<{ contact: any }>('/api/operator/crm/contacts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(crmForm),
-      });
-      setCrmForm({ name: '', company: '', document: '', phone: '', email: '' });
-      setCrmFormOpen(false);
-      setCrmStatus('Cliente cadastrado no Ploomes. ID: ' + (response.contact?.Id ?? 'confirmado'));
-      await loadCrm(crmSearch);
-    } catch (error) {
-      setCrmError(error instanceof Error ? error.message : 'Não foi possível cadastrar o cliente.');
-    } finally {
-      setCrmSaving(false);
-    }
-  };
-
   if (!logged)
     return (
       <main className="login">
@@ -1509,33 +1455,18 @@ export default function OperatorPage() {
       </aside>
 
       {crmOpen ? (
-        <section className="crm-page" aria-label="Clientes no Ploomes">
-          <header className="crm-head">
-            <div><p className="eyebrow">Ploomes</p><h1>Clientes e oportunidades</h1><p>Consulta e cadastro pelo CRM da Life.</p></div>
-            <div className="crm-head-actions"><button type="button" className="btn alt" onClick={() => { setCrmOpen(false); setNav('all'); }}>Voltar à fila</button><button type="button" className="btn alt" onClick={() => void loadCrm(crmSearch)} disabled={crmBusy}>Atualizar dados</button></div>
-          </header>
-          {crmError && <div className="crm-alert error" role="alert">{crmError}</div>}
-          {crmStatus && <div className="crm-alert" role="status">{crmStatus}</div>}
-          <div className="crm-controls">
-            <form onSubmit={(event) => { event.preventDefault(); void loadCrm(crmSearch); }}>
-              <input type="search" value={crmSearch} onChange={(event) => setCrmSearch(event.target.value)} placeholder="Buscar nome, empresa, CPF/CNPJ, telefone ou e-mail" />
-              <button className="btn" disabled={crmBusy}>Buscar</button>
-            </form>
-            <button type="button" className="btn" onClick={() => setCrmFormOpen(!crmFormOpen)}>Cadastrar cliente</button>
-          </div>
-          {crmFormOpen && <form className="crm-form" onSubmit={saveCrmCustomer}>
-            <label>Nome do contato<input required minLength={2} value={crmForm.name} onChange={e => setCrmForm({...crmForm,name:e.target.value})} /></label>
-            <label>Empresa<input value={crmForm.company} onChange={e => setCrmForm({...crmForm,company:e.target.value})} /></label>
-            <label>CPF/CNPJ<input value={crmForm.document} onChange={e => setCrmForm({...crmForm,document:e.target.value})} /></label>
-            <label>Telefone<input value={crmForm.phone} onChange={e => setCrmForm({...crmForm,phone:e.target.value})} /></label>
-            <label>E-mail<input type="email" value={crmForm.email} onChange={e => setCrmForm({...crmForm,email:e.target.value})} /></label>
-            <div className="crm-form-actions"><button className="btn" disabled={crmSaving}>{crmSaving ? 'Salvando…' : 'Salvar no Ploomes'}</button><button type="button" className="btn alt" onClick={() => setCrmFormOpen(false)}>Cancelar</button></div>
-          </form>}
-          <div className="crm-columns">
-            <section className="crm-panel"><h2>Clientes <span>{crmContacts.length}</span></h2>{crmBusy ? <p className="crm-empty">Consultando Ploomes…</p> : crmContacts.length ? <div className="crm-list">{crmContacts.map((c, i) => <article className="crm-record" key={c.Id || i}><strong>{c.Name || c.LegalName || c.CompanyName || 'Cadastro sem nome'}</strong><p>{[c.LegalName || c.CompanyName, c.CNPJ || c.Register || c.CPF, c.Phone, c.Email].filter(Boolean).join(' · ') || 'Sem dados complementares'}</p><small>Ploomes ID {c.Id ?? '—'}</small></article>)}</div> : <p className="crm-empty">{crmSearch ? 'Nenhum cliente encontrado para esta busca.' : 'Nenhum cliente retornado pelo Ploomes.'}</p>}</section>
-            <section className="crm-panel"><h2>Oportunidades recentes <span>{crmDeals.length}</span></h2>{crmDeals.length ? <div className="crm-list">{crmDeals.map((d, i) => <article className="crm-record" key={d.Id || i}><strong>{d.Title || d.Name || 'Oportunidade sem título'}</strong><p>{d.Stage?.Name || d.StageName || 'Etapa não informada'} · {d.Amount ? new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(d.Amount)) : 'Valor não informado'}</p><small>Ploomes ID {d.Id ?? '—'}</small></article>)}</div> : <p className="crm-empty">Sem oportunidades disponíveis no Ploomes.</p>}</section>
-          </div>
-        </section>
+        <CrmView
+          conversations={items.map((conversation) => ({
+            id: conversation.id,
+            protocolId: conversation.protocolId || null,
+            state: conversation.state,
+            destinationArea: conversation.destinationArea || conversation.route || null,
+            assignedOperator: conversation.assignedOperator || null,
+            updatedAt: conversation.updatedAt,
+            contactPhone: conversation.contactPhone,
+          }))}
+          onOpenConversation={(id) => { setCrmOpen(false); setNav('all'); openCard(id); }}
+        />
       ) : <>
       <section className="queue">
         <header className="queue-head">
