@@ -1205,44 +1205,6 @@ export default function OperatorPage() {
       .replace('{operador}', name.split(' ')[0] || 'a equipe');
   const themeClass = dark === null ? '' : dark ? 'theme-dark' : 'theme-light';
 
-  if (!logged)
-    return (
-      <main className="login">
-        <form className="login-card" action="/api/operator/login" method="post" onSubmit={login}>
-          <img className="logo" src="/life-logo.png" alt="Life Engenharia" />
-          <p className="eyebrow">Central de atendimento</p>
-          <h1>Bem-vindo de volta</h1>
-          <p>Entre para acompanhar, assumir e responder aos atendimentos.</p>
-          <label className="field">
-            E-mail corporativo
-            <input
-              name="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
-          </label>
-          <label className="field">
-            Senha
-            <input
-              name="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-            />
-          </label>
-          <button type="submit" className="btn" style={{ width: '100%' }} onClick={submitLogin}>
-            Entrar
-          </button>
-          <p className="notice">{notice}</p>
-        </form>
-      </main>
-    );
-
   const renderCard = (c: Conversation) => {
     const p = priorityOf(c);
     const due = isDue(c);
@@ -1424,6 +1386,44 @@ export default function OperatorPage() {
       setCrmSaving(false);
     }
   };
+
+  if (!logged)
+    return (
+      <main className="login">
+        <form className="login-card" action="/api/operator/login" method="post" onSubmit={login}>
+          <img className="logo" src="/life-logo.png" alt="Life Engenharia" />
+          <p className="eyebrow">Central de atendimento</p>
+          <h1>Bem-vindo de volta</h1>
+          <p>Entre para acompanhar, assumir e responder aos atendimentos.</p>
+          <label className="field">
+            E-mail corporativo
+            <input
+              name="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+            />
+          </label>
+          <label className="field">
+            Senha
+            <input
+              name="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </label>
+          <button type="submit" className="btn" style={{ width: '100%' }} onClick={submitLogin}>
+            Entrar
+          </button>
+          <p className="notice">{notice}</p>
+        </form>
+      </main>
+    );
 
   return (
     <main className={'app ' + themeClass + (crmOpen ? ' crm-open' : '')}>
