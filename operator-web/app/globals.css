@@ -227,15 +227,14 @@ button {
 }
 
 @media (min-width: 1100px) {
-  .app { grid-template-columns: 94px minmax(620px, 1fr) minmax(430px, 32vw) }
-  .rail { padding: 14px 8px; gap: 12px }
-  .app .brand { justify-content: center; margin: 0 }
-  .app .brand img { width: 34px; height: 34px }
-  .app .brand strong, .app .brand small, .app .nav h4, .rail-tools { display: none }
-  .app .nav button { min-height: 54px; padding: 8px; justify-content: center; text-align: center; font-size: 12px; line-height: 1.1 }
-  .app .nav button small { display: none }
-  .app .account { justify-content: center; padding-top: 10px }
-  .app .account > :not(.avatar) { display: none !important }
+  .app { grid-template-columns: 200px minmax(620px, 1fr) minmax(430px, 32vw) }
+  .rail { padding: 18px 12px; gap: 18px }
+  .app .brand { justify-content: flex-start; margin: 0 4px }
+  .app .brand strong, .app .brand small, .app .nav h4, .rail-tools { display: initial }
+  .app .nav button { min-height: 0; padding: 8px 10px; justify-content: space-between; text-align: left; font-size: 14px; line-height: 1.2 }
+  .app .nav button small { display: initial }
+  .app .account { justify-content: flex-start; padding-top: 12px }
+  .app .account > :not(.avatar) { display: block !important }
   .queue-head { padding: 18px 20px 14px }
   .board { padding: 12px 20px; gap: 12px }
 }
