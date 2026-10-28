@@ -157,11 +157,50 @@ export class PloomesClient {
       }
       if (found.size) return [...found.values()];
     }
+    const escaped = value.replace(/'/g, "''");
+    const filter = `contains(Name,'${escaped}') or contains(LegalName,'${escaped}') or contains(Email,'${escaped}') or contains(Phone,'${escaped}')`;
+    try {
+      const query = new URLSearchParams({ $top: '100', $orderby: 'Id desc', $filter: filter });
+      const response = await this.request<PloomesList<PloomesContact>>(`Contacts?${query}`);
+      if (response.value?.length) return response.value;
+    } catch {
+      // Contas sem suporte à busca textual continuam consultáveis pelos registros recentes.
+    }
     const recent = await this.listRecentContacts();
     const normalized = normalizeIdentity(value) ?? '';
     return recent.filter((contact) => {
       const fields = [contact.Name, contact.LegalName, contact.Register, contact.CNPJ, contact.CPF, contact.Email];
       return fields.some((field) => (normalizeIdentity(String(field ?? '')) ?? '').includes(normalized));
+    });
+  }
+
+  async listContacts(): Promise<PloomesContact[]> {
+    return this.listRecentContacts();
+  }
+
+  async createCustomer(input: {
+    name: string;
+    company?: string;
+    document?: string;
+    phone?: string;
+    email?: string;
+  }): Promise<PloomesContact> {
+    const document = normalizeDocument(input.document);
+    if (document) {
+      const existing = await this.findContactByDocument(document);
+      if (existing) throw new Error('Já existe um cadastro no Ploomes com esse CPF/CNPJ.');
+    }
+    return this.request<PloomesContact>('Contacts', {
+      method: 'POST',
+      body: JSON.stringify({
+        Name: input.name.trim(),
+        LegalName: input.company?.trim() || undefined,
+        CompanyName: input.company?.trim() || undefined,
+        Register: document,
+        CNPJ: document,
+        Phone: input.phone?.trim() || undefined,
+        Email: input.email?.trim() || undefined,
+      }),
     });
   }
 

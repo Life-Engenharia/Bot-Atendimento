@@ -680,6 +680,62 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     }
   });
 
+  app.get<{ Querystring: { q?: string } }>('/api/operator/crm/contacts', async (request, reply) => {
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
+    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!['admin', 'coordination', 'commercial'].includes(actor.role))
+      return reply.code(403).send({ error: 'Seu cargo não tem acesso aos clientes do Ploomes.' });
+    if (!environment.PLOOMES_USER_KEY)
+      return reply.code(503).send({ error: 'Integração Ploomes ainda não configurada.' });
+    const query = String(request.query.q ?? '').trim();
+    if (query.length > 120) return reply.code(400).send({ error: 'Busca muito longa.' });
+    if (query.length > 0 && query.length < 2)
+      return reply.code(400).send({ error: 'Digite ao menos 2 caracteres para buscar.' });
+    try {
+      const client = new PloomesClient(environment.PLOOMES_USER_KEY);
+      const contacts = query ? await client.searchContacts(query) : await client.listContacts();
+      return { contacts, query, source: 'ploomes' };
+    } catch {
+      return reply.code(502).send({ error: 'Não foi possível consultar os clientes no Ploomes.' });
+    }
+  });
+
+  app.post<{ Body: unknown }>('/api/operator/crm/contacts', async (request, reply) => {
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
+    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!['admin', 'coordination', 'commercial'].includes(actor.role))
+      return reply.code(403).send({ error: 'Seu cargo não pode cadastrar clientes no Ploomes.' });
+    if (!environment.PLOOMES_USER_KEY)
+      return reply.code(503).send({ error: 'Integração Ploomes ainda não configurada.' });
+    const body = z.object({
+      name: z.string().trim().min(2).max(200),
+      company: z.string().trim().max(200).optional(),
+      document: z.string().trim().max(30).optional(),
+      phone: z.string().trim().max(40).optional(),
+      email: z.union([z.string().trim().email(), z.literal('')]).optional(),
+    }).parse(request.body);
+    try {
+      const contact = await new PloomesClient(environment.PLOOMES_USER_KEY).createCustomer(body);
+      await supabaseStore
+        ?.audit('operator.ploomes_customer_created', actor.name, {
+          ploomesContactId: contact.Id,
+          hasDocument: Boolean(body.document),
+        })
+        .catch((error) => request.log.warn({ err: error }, 'ploomes_customer_audit_failed'));
+      return reply.code(201).send({ contact, source: 'ploomes' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível cadastrar o cliente.';
+      const conflict = message.includes('Já existe um cadastro');
+      return reply.code(conflict ? 409 : 502).send({ error: message });
+    }
+  });
+
   app.get('/operator', async (_request, reply) => {
     if (process.env.OPERATOR_WEB_URL) return reply.redirect(process.env.OPERATOR_WEB_URL);
     if (!supabaseStore || !environment.ADMIN_DASHBOARD_TOKEN)
