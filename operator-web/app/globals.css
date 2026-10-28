@@ -196,6 +196,50 @@ button {
   color: var(--c-fg)
 }
 
+/* Referência do painel operacional: tema escuro, trilho compacto e foco na fila. */
+.app {
+  --c-bg: #09111f;
+  --c-surface: #111c30;
+  --c-surface-2: #15223a;
+  --c-line: #26364f;
+  --c-line-2: #1d2b44;
+  --c-fg: #e5ecf8;
+  --c-muted: #92a5c7;
+  --c-blue: #4f8ef0;
+  --c-blue-ink: #06142b;
+  --c-cyan: #3cc3e2;
+  --c-navy: #060e1b;
+  --c-navy-2: #112649;
+  --c-p1: #ff7480;
+  --c-p2: #ff9363;
+  --c-p3: #e8bb4f;
+  --c-p4: #6fc99a;
+  --c-warn: #f0b85a;
+  --c-warn-bg: #392c12;
+  --c-crit: #ff8a94;
+  --c-crit-bg: #3b1a21;
+  --c-in: #15223a;
+  --c-out: #173d2a;
+  --c-out-fg: #cdeedd;
+  --c-read: #5fd0ea;
+  --c-ink-on-prio: #1a0a0c;
+  color-scheme: dark
+}
+
+@media (min-width: 1100px) {
+  .app { grid-template-columns: 94px minmax(620px, 1fr) minmax(430px, 32vw) }
+  .rail { padding: 14px 8px; gap: 12px }
+  .app .brand { justify-content: center; margin: 0 }
+  .app .brand img { width: 34px; height: 34px }
+  .app .brand strong, .app .brand small, .app .nav h4, .rail-tools { display: none }
+  .app .nav button { min-height: 54px; padding: 8px; justify-content: center; text-align: center; font-size: 12px; line-height: 1.1 }
+  .app .nav button small { display: none }
+  .app .account { justify-content: center; padding-top: 10px }
+  .app .account > :not(.avatar) { display: none !important }
+  .queue-head { padding: 18px 20px 14px }
+  .board { padding: 12px 20px; gap: 12px }
+}
+
 @media (prefers-color-scheme: dark) {
   .app:not(.theme-light) {
     --c-bg: #09111f;
