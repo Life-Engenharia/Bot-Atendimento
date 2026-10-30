@@ -19,7 +19,7 @@ export class WhatsAppCloudClient {
     private readonly accessToken: string,
     private readonly phoneNumberId: string,
     private readonly graphVersion = 'v26.0',
-  ) {}
+  ) { }
 
   async getPhoneProfile(): Promise<WhatsAppPhoneProfile> {
     const url = new URL(`https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}`);
@@ -28,7 +28,7 @@ export class WhatsAppCloudClient {
       headers: { Authorization: `Bearer ${this.accessToken}` },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) throw new Error(`Meta WhatsApp API request failed (${response.status}).`);
+    if (!response.ok) throw new Error(await metaRequestError(response));
     return (await response.json()) as WhatsAppPhoneProfile;
   }
 
@@ -47,7 +47,7 @@ export class WhatsAppCloudClient {
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok) throw new Error(`Meta WhatsApp API request failed (${response.status}).`);
+    if (!response.ok) throw new Error(await metaRequestError(response));
     const result = (await response.json()) as { messages?: Array<{ id?: string }> };
     const messageId = result.messages?.[0]?.id;
     if (!messageId) throw new Error('A Meta não retornou o ID da mensagem enviada.');
@@ -73,7 +73,7 @@ export class WhatsAppCloudClient {
         signal: AbortSignal.timeout(30_000),
       },
     );
-    if (!upload.ok) throw new Error(`Meta não aceitou a imagem (${upload.status}).`);
+    if (!upload.ok) throw new Error(await metaRequestError(upload, 'Meta não aceitou a imagem'));
     const uploaded = (await upload.json()) as { id?: string };
     if (!uploaded.id) throw new Error('A Meta não retornou o ID da imagem.');
     const response = await this.fetch(
@@ -93,7 +93,7 @@ export class WhatsAppCloudClient {
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok) throw new Error(`Meta não enviou a imagem (${response.status}).`);
+    if (!response.ok) throw new Error(await metaRequestError(response, 'Meta não enviou a imagem'));
     const result = (await response.json()) as { messages?: Array<{ id?: string }> };
     const messageId = result.messages?.[0]?.id;
     if (!messageId) throw new Error('A Meta não retornou o ID da imagem enviada.');
@@ -128,7 +128,7 @@ export class WhatsAppCloudClient {
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok) throw new Error(`Meta WhatsApp API request failed (${response.status}).`);
+    if (!response.ok) throw new Error(await metaRequestError(response));
     const result = (await response.json()) as { messages?: Array<{ id?: string }> };
     const messageId = result.messages?.[0]?.id;
     if (!messageId) throw new Error('A Meta não retornou o ID da mensagem interativa.');
@@ -164,7 +164,7 @@ export class WhatsAppCloudClient {
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok) throw new Error(`Meta WhatsApp API request failed (${response.status}).`);
+    if (!response.ok) throw new Error(await metaRequestError(response));
     const result = (await response.json()) as { messages?: Array<{ id?: string }> };
     const messageId = result.messages?.[0]?.id;
     if (!messageId) throw new Error('A Meta não retornou o ID da lista.');
@@ -175,6 +175,7 @@ export class WhatsAppCloudClient {
     to: string,
     name: string,
     languageCode = 'en_US',
+    parameters: string[] = [],
   ): Promise<{ messageId: string }> {
     if (!/^\d{8,15}$/.test(to))
       throw new Error('O destinatário deve estar em formato E.164, apenas dígitos e sem +.');
@@ -190,12 +191,18 @@ export class WhatsAppCloudClient {
           messaging_product: 'whatsapp',
           to,
           type: 'template',
-          template: { name, language: { code: languageCode } },
+          template: {
+            name,
+            language: { code: languageCode },
+            ...(parameters.length
+              ? { components: [{ type: 'body', parameters: parameters.map((text) => ({ type: 'text', text })) }] }
+              : {}),
+          },
         }),
         signal: AbortSignal.timeout(15_000),
       },
     );
-    if (!response.ok) throw new Error(`Meta WhatsApp API request failed (${response.status}).`);
+    if (!response.ok) throw new Error(await metaRequestError(response));
     const result = (await response.json()) as { messages?: Array<{ id?: string }> };
     const messageId = result.messages?.[0]?.id;
     if (!messageId) throw new Error('A Meta não retornou o ID do template enviado.');
@@ -236,15 +243,26 @@ export class WhatsAppCloudClient {
   }
 
   private async fetch(url: string | URL, init: RequestInit): Promise<Response> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        return await fetch(url, init);
+        const response = await fetch(url, init);
+        // A conta de teste da Meta aplica um limite por par de números. A
+        // resposta 131056 é temporária e significa que a requisição não foi
+        // aceita; aguarde e repita para não perder a resposta do bot.
+        if (response.status === 400) {
+          const detail = await response.clone().text();
+          if (detail.includes('131056') && attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, [5_000, 15_000, 30_000][attempt]));
+            continue;
+          }
+        }
+        return response;
       } catch (error) {
         const code =
           error instanceof TypeError &&
-          error.cause &&
-          typeof error.cause === 'object' &&
-          'code' in error.cause
+            error.cause &&
+            typeof error.cause === 'object' &&
+            'code' in error.cause
             ? String(error.cause.code)
             : undefined;
         const transient = code === 'EAI_AGAIN' || code === 'UND_ERR_CONNECT_TIMEOUT';
@@ -262,4 +280,9 @@ export class WhatsAppCloudClient {
     }
     throw new Error('Falha inesperada ao conectar à Meta.');
   }
+}
+
+async function metaRequestError(response: Response, prefix = 'Meta WhatsApp API request failed'): Promise<string> {
+  const detail = (await response.text()).replace(/\s+/g, ' ').trim();
+  return `${prefix} (${response.status})${detail ? `: ${detail.slice(0, 1_000)}` : '.'}`;
 }
