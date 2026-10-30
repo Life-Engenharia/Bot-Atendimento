@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SupabaseConversationStore, StoredConversation } from '../../src/infra/supabase/conversation-store.js';
+import { normalizeSupabaseSignedUrl, SupabaseConversationStore, StoredConversation } from '../../src/infra/supabase/conversation-store.js';
 
 const store = () => new SupabaseConversationStore('https://test-project.supabase.co', 'service-key');
 const json = (body: unknown, status = 200) =>
@@ -9,6 +9,15 @@ const empty = (status = 204) => new Response(null, { status });
 afterEach(() => vi.restoreAllMocks());
 
 describe('Supabase conversation processing resilience', () => {
+  it('normalizes Supabase signed paths returned without the storage prefix', () => {
+    expect(
+      normalizeSupabaseSignedUrl('/object/sign/protocol-attachments/a/b.png?token=x', 'https://test-project.supabase.co'),
+    ).toBe('https://test-project.supabase.co/storage/v1/object/sign/protocol-attachments/a/b.png?token=x');
+    expect(
+      normalizeSupabaseSignedUrl('/storage/v1/object/sign/protocol-attachments/a/b.png?token=x', 'https://test-project.supabase.co'),
+    ).toBe('https://test-project.supabase.co/storage/v1/object/sign/protocol-attachments/a/b.png?token=x');
+  });
+
   it('recovers an inbound message persisted before a prior processing failure', async () => {
     const calls: string[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -169,5 +178,92 @@ describe('Supabase conversation processing resilience', () => {
     expect(storedSourceMessageId).toBe('wamid-confirm-1');
     expect(storedCommercialNeed).toContain('Chiller 25TR');
     expect(storedCommercialNeed).toContain('Parou de resfriar');
+  });
+
+  it('transfers a conversation to another operator, records the reason as a note and audits it', async () => {
+    const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+      calls.push({ method: init?.method ?? 'GET', url, body });
+      if (url.includes('/conversations?id=eq.conversation-1')) return json([{ id: 'conversation-1' }]);
+      if (url.endsWith('/operator_notes') || url.endsWith('/audit_events')) return empty(201);
+      throw new Error(`Unexpected Supabase request: ${url}`);
+    });
+
+    const moved = await store().transferToOperator(
+      'conversation-1',
+      'Ana',
+      { id: 'user-2', name: 'Bruno' },
+      'Cliente pediu o técnico responsável',
+    );
+
+    expect(moved).toBe(true);
+    const patch = calls.find((call) => call.method === 'PATCH');
+    expect(patch?.url).toContain('state=neq.closed');
+    expect(patch?.body).toMatchObject({ assigned_operator: 'Bruno', assigned_user_id: 'user-2', state: 'human' });
+    const note = calls.find((call) => call.url.endsWith('/operator_notes'));
+    expect(note?.body?.content).toBe('Transferido de Ana para Bruno. Motivo: Cliente pediu o técnico responsável');
+    expect(calls.some((call) => call.url.endsWith('/audit_events'))).toBe(true);
+  });
+
+  it('does not transfer a closed conversation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => json([]));
+    const moved = await store().transferToOperator('conversation-1', 'Ana', { id: 'u', name: 'Bruno' }, 'teste');
+    expect(moved).toBe(false);
+  });
+
+  it('lists previous attendances of the same contact without the current one', async () => {
+    let historyUrl = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('select=contact_id')) return json([{ contact_id: 'contact-1' }]);
+      historyUrl = url;
+      return json([
+        {
+          id: 'old-1',
+          state: 'closed',
+          route: 'technical',
+          destination_area: 'technical',
+          updated_at: '2026-09-01T10:00:00Z',
+          resolution_note: 'Equipamento reiniciado',
+          protocols: { id: 'LFE-000100', suggested_priority: 'P2' },
+        },
+      ]);
+    });
+
+    const history = await store().listContactHistory('conversation-1');
+
+    expect(historyUrl).toContain('contact_id=eq.contact-1');
+    expect(historyUrl).toContain('id=neq.conversation-1');
+    expect(history).toEqual([
+      {
+        id: 'old-1',
+        protocolId: 'LFE-000100',
+        state: 'closed',
+        route: 'technical',
+        destinationArea: 'technical',
+        priority: 'P2',
+        updatedAt: '2026-09-01T10:00:00Z',
+        resolutionNote: 'Equipamento reiniciado',
+      },
+    ]);
+  });
+
+  it('finds a failed outbound message and marks it as retried', async () => {
+    const calls: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.includes('direction=eq.outbound&select=')) return json([{ id: 'm1', content: 'Ana: oi', delivery_status: 'failed: x' }]);
+      if (init?.method === 'PATCH') return empty();
+      return empty(201);
+    });
+
+    const message = await store().getOutboundMessage('conversation-1', 'm1');
+    await store().markMessageRetried('m1', 'Ana', 'conversation-1');
+
+    expect(message).toEqual({ id: 'm1', content: 'Ana: oi', deliveryStatus: 'failed: x' });
+    expect(calls.some((call) => call.startsWith('PATCH') && call.includes('messages?id=eq.m1'))).toBe(true);
   });
 });

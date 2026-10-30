@@ -14,6 +14,8 @@ export type StoredConversation = {
   assignedOperator?: string | null;
   context: {
     service?: string;
+    customService?: string;
+    awaitingCustomService?: boolean;
     location?: string;
     contactName?: string;
     company?: string;
@@ -25,6 +27,7 @@ export type StoredConversation = {
     editingTechnicalField?: string;
     selectingTechnicalEditField?: boolean;
     selectingTechnicalEditMore?: boolean;
+    awaitingTechnicalDocument?: boolean;
     initialIntent?: string;
     suggestedRoute?: 'commercial' | 'technical';
     impactConfirmation?: string;
@@ -156,6 +159,9 @@ export type OperatorConversationDetail = OperatorConversation & {
 };
 
 export class SupabaseConversationStore implements OperationalConfigurationStore {
+  private readonly readCache = new Map<string, { expiresAt: number; value: unknown }>();
+  private readonly readCacheTtlMs = 60_000;
+  private readonly readCacheMaxEntries = 100;
   constructor(
     private readonly url: string,
     private readonly serviceKey: string,
@@ -367,6 +373,18 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       [200, 201],
     );
     return inserted?.length ?? 0;
+  }
+
+  /** Remove mensagens ainda não processadas do contato quando ele solicita
+   * explicitamente um novo ciclo ("menu"/"reiniciar"). Isso evita que uma
+   * entrega atrasada do ciclo anterior sobrescreva o estado recém-resetado.
+   */
+  async discardQueuedMessagesForContact(phone: string): Promise<void> {
+    await this.request(
+      `webhook_jobs?status=eq.queued&payload->>from=eq.${encodeURIComponent(phone)}`,
+      { method: 'DELETE' },
+      [204],
+    );
   }
 
   async claimWebhookJobs(limit = 10): Promise<WebhookJob[]> {
@@ -911,17 +929,17 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const technicalDetails =
       context.service === 'Assistência avulsa' && context.equipment
         ? [
-            'Dados técnicos já informados:',
-            `Equipamento: ${context.equipment}`,
-            `Fabricante/modelo: ${context.manufacturerModel ?? 'não informado'}`,
-            `Patrimônio/série: ${context.assetIdentifier ?? 'não informado'}`,
-            `Sintoma: ${context.symptom ?? 'não informado'}`,
-            `Alarme: ${context.alarm ?? 'não informado'}`,
-            `Início/frequência: ${context.startedFrequency ?? 'não informado'}`,
-            `Impacto: ${context.operationalImpact ?? 'não informado'}`,
-            `Contingência: ${context.contingency ?? 'não informado'}`,
-            `Risco: ${context.reportedRisk ?? 'não informado'}`,
-          ].join(' · ')
+          'Dados técnicos já informados:',
+          `Equipamento: ${context.equipment}`,
+          `Fabricante/modelo: ${context.manufacturerModel ?? 'não informado'}`,
+          `Patrimônio/série: ${context.assetIdentifier ?? 'não informado'}`,
+          `Sintoma: ${context.symptom ?? 'não informado'}`,
+          `Alarme: ${context.alarm ?? 'não informado'}`,
+          `Início/frequência: ${context.startedFrequency ?? 'não informado'}`,
+          `Impacto: ${context.operationalImpact ?? 'não informado'}`,
+          `Contingência: ${context.contingency ?? 'não informado'}`,
+          `Risco: ${context.reportedRisk ?? 'não informado'}`,
+        ].join(' · ')
         : '';
     const requestNeed = [context.need, technicalDetails].filter(Boolean).join('\n\n').slice(0, 1000);
     const { id: protocolId, reference } = await this.getOrCreateProtocol(
@@ -1576,7 +1594,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     if (!response.ok)
       throw new Error(`Não foi possível assinar o anexo privado (${response.status}).`);
     const body = (await response.json()) as { signedURL?: string };
-    return body.signedURL ? new URL(body.signedURL, this.url).toString() : undefined;
+    if (!body.signedURL) return undefined;
+
+    // Supabase Storage may return a relative signed path without the
+    // `/storage/v1` prefix (for example `/object/sign/<bucket>/<path>`).
+    // Returning that path directly makes the operator open a non-existent
+    // route on the project host. Normalize both relative and absolute forms
+    // before handing the URL to the browser.
+    return normalizeSupabaseSignedUrl(body.signedURL, this.url);
   }
 
   async claimConversation(id: string, operator: string): Promise<boolean> {
@@ -1624,6 +1649,135 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       [201],
     );
     await this.audit('conversation.note_added', author, { conversationId: id });
+  }
+
+  /** Lista enxuta (sem hash/e-mail) das pessoas que podem receber uma transferência. */
+  async listOperatorDirectory(): Promise<
+    Array<{ id: string; name: string; role: AppRole; area: AppUser['area'] }>
+  > {
+    const rows = await this.request<
+      Array<{ id: string; name: string; role: AppRole; area: AppUser['area'] }>
+    >('app_users?active=eq.true&role=neq.viewer&select=id,name,role,area&order=name.asc', {}, [200]);
+    return rows;
+  }
+
+  /**
+   * Passa o atendimento para outra pessoa, mantendo setor e histórico. O motivo
+   * fica registrado como nota interna (visível a quem recebe) e na auditoria.
+   */
+  async transferToOperator(
+    id: string,
+    actor: string,
+    target: { id: string; name: string },
+    reason: string,
+  ): Promise<boolean> {
+    const moved = await this.request<Array<{ id: string }>>(
+      `conversations?id=eq.${encodeURIComponent(id)}&state=neq.closed`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          assigned_operator: target.name,
+          assigned_user_id: target.id,
+          assigned_at: new Date().toISOString(),
+          state: 'human',
+        }),
+      },
+      [200],
+    );
+    if (!moved.length) return false;
+    await this.request(
+      'operator_notes',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          conversation_id: id,
+          author: actor,
+          content: `Transferido de ${actor} para ${target.name}. Motivo: ${reason}`.slice(0, 2000),
+        }),
+      },
+      [201],
+    );
+    await this.audit('conversation.transferred_to_operator', actor, {
+      conversationId: id,
+      to: target.name,
+      reason,
+    });
+    return true;
+  }
+
+  /** Atendimentos anteriores do mesmo contato (exclui o atual). */
+  async listContactHistory(conversationId: string): Promise<
+    Array<{
+      id: string;
+      protocolId: string | null;
+      state: string;
+      route: string | null;
+      destinationArea: string | null;
+      priority: string | null;
+      updatedAt: string;
+      resolutionNote: string | null;
+    }>
+  > {
+    const current = await this.request<Array<{ contact_id: string }>>(
+      `conversations?id=eq.${encodeURIComponent(conversationId)}&select=contact_id`,
+      {},
+      [200],
+    );
+    const contactId = current[0]?.contact_id;
+    if (!contactId) return [];
+    const rows = await this.request<
+      Array<{
+        id: string;
+        state: string;
+        route: string | null;
+        destination_area: string | null;
+        updated_at: string;
+        resolution_note: string | null;
+        protocols: { id: string; suggested_priority: string | null } | null;
+      }>
+    >(
+      `conversations?contact_id=eq.${encodeURIComponent(contactId)}&id=neq.${encodeURIComponent(conversationId)}&select=id,state,route,destination_area,updated_at,resolution_note,protocols(id,suggested_priority)&order=updated_at.desc&limit=20`,
+      {},
+      [200],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      protocolId: row.protocols?.id ?? null,
+      state: row.state,
+      route: row.route,
+      destinationArea: row.destination_area,
+      priority: row.protocols?.suggested_priority ?? null,
+      updatedAt: row.updated_at,
+      resolutionNote: row.resolution_note,
+    }));
+  }
+
+  async getOutboundMessage(
+    conversationId: string,
+    messageId: string,
+  ): Promise<{ id: string; content: string | null; deliveryStatus: string | null } | undefined> {
+    const rows = await this.request<
+      Array<{ id: string; content: string | null; delivery_status: string | null }>
+    >(
+      `messages?id=eq.${encodeURIComponent(messageId)}&conversation_id=eq.${encodeURIComponent(conversationId)}&direction=eq.outbound&select=id,content,delivery_status`,
+      {},
+      [200],
+    );
+    const row = rows[0];
+    return row
+      ? { id: row.id, content: row.content, deliveryStatus: row.delivery_status }
+      : undefined;
+  }
+
+  /** Marca a mensagem original como reenviada para ela não ser reenviada duas vezes. */
+  async markMessageRetried(messageId: string, actor: string, conversationId: string): Promise<void> {
+    await this.request(
+      `messages?id=eq.${encodeURIComponent(messageId)}&direction=eq.outbound`,
+      { method: 'PATCH', body: JSON.stringify({ delivery_status: 'retried' }) },
+      [204],
+    );
+    await this.audit('operator.message_retried', actor, { conversationId, messageId });
   }
 
   async scheduleFollowUp(id: string, actor: string, followUpAt: string | null): Promise<void> {
@@ -1777,6 +1931,26 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     });
   }
 
+  async findContactByDocument(documentValue: string): Promise<Record<string, unknown> | undefined> {
+    const document = documentValue.replace(/[^0-9A-Z]/gi, '').toUpperCase();
+    if (!document) return undefined;
+    const contacts = await this.request<Array<Record<string, unknown>>>(
+      `contacts?document_number=eq.${encodeURIComponent(document)}&select=id,name,company,email,phone_e164,document_number&limit=1`,
+      {},
+      [200],
+    );
+    const contact = contacts[0];
+    if (!contact) return undefined;
+    return {
+      ...contact,
+      Id: contact.id,
+      Name: contact.name,
+      CompanyName: contact.company,
+      Email: contact.email,
+      Phone: contact.phone_e164,
+    };
+  }
+
   private async upsertContact(phone: string): Promise<Contact> {
     const contacts = await this.request<Contact[]>(
       'contacts?on_conflict=phone_e164',
@@ -1873,7 +2047,17 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     headers.set('Content-Type', 'application/json');
     headers.set('Accept', 'application/json');
     const url = new URL(`/rest/v1/${path}`, this.url);
-    const attempts = !init.method || init.method === 'GET' ? 2 : 1;
+    const cacheKey = !init.method || init.method === 'GET' ? url.toString() : undefined;
+    if (cacheKey && isCacheableRead(path)) {
+      const cached = this.readCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+      if (cached) this.readCache.delete(cacheKey);
+    }
+    // Supabase/Cloudflare pode recusar uma conexão momentaneamente. Faça
+    // poucas tentativas com backoff para não perder o webhook, sem manter a
+    // fila presa indefinidamente. GETs são seguros para três tentativas;
+    // mutações recebem duas tentativas para respeitar idempotência do banco.
+    const attempts = !init.method || init.method === 'GET' ? 3 : 2;
     let response: Response | undefined;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -1884,8 +2068,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         });
         break;
       } catch (error) {
-        if (attempt + 1 < attempts && isTimeout(error)) continue;
-        if (isTimeout(error)) {
+        if (attempt + 1 < attempts && isTransientNetworkError(error)) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+          continue;
+        }
+        if (isTransientNetworkError(error)) {
           const unavailable = new Error(
             'O banco de dados demorou para responder. Tente novamente em instantes.',
           );
@@ -1901,7 +2088,15 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       throw new Error(`Supabase request failed (${response.status}).`);
     if (response.status === 204) return undefined as T;
     const body = await response.text();
-    return (body ? JSON.parse(body) : undefined) as T;
+    const value = (body ? JSON.parse(body) : undefined) as T;
+    if (cacheKey && isCacheableRead(path)) {
+      if (this.readCache.size >= this.readCacheMaxEntries) {
+        const oldest = this.readCache.keys().next().value;
+        if (oldest) this.readCache.delete(oldest);
+      }
+      this.readCache.set(cacheKey, { expiresAt: Date.now() + this.readCacheTtlMs, value });
+    }
+    return value;
   }
 
   private async uploadPrivateObject(
@@ -1934,6 +2129,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   }
 }
 
+export function normalizeSupabaseSignedUrl(signedURL: string, baseURL: string): string {
+  const signed = new URL(signedURL, baseURL);
+  if (signed.pathname.startsWith('/object/sign/')) {
+    signed.pathname = `/storage/v1${signed.pathname}`;
+  }
+  return signed.toString();
+}
+
 function isReopenRequest(value?: string): boolean {
   return /^(reabrir|reabra|ainda preciso de ajuda|preciso de ajuda novamente)$/i.test(
     value?.trim() ?? '',
@@ -1942,6 +2145,23 @@ function isReopenRequest(value?: string): boolean {
 
 function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === 'TimeoutError';
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  if (isTimeout(error)) return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes('fetch failed')
+    || message.includes('connect timeout')
+    || message.includes('network error')
+    || message.includes('econnreset')
+    || message.includes('eai_again');
+}
+
+function isCacheableRead(path: string): boolean {
+  return path.startsWith('operational_settings?')
+    || path.startsWith('app_users?')
+    || path.startsWith('contacts?');
 }
 
 function safeFileName(value: string): string {

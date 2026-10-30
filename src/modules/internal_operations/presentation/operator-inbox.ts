@@ -841,6 +841,7 @@ button {
 </div>
 </div>
 <div class="actions">
+<button id="registerCustomer" type="button" class="btn hidden">Cadastrar cliente</button>
 <button id="claim" type="button" class="btn">Assumir atendimento</button>
 <button id="more" type="button" class="btn alt">Mais ações</button>
 </div>
@@ -929,14 +930,14 @@ const sla = (c) => (["P1", "P2"].includes(c.suggestedPriority) ? 30 : 120);
 const late = (c) => mins(c.updatedAt) > sla(c);
 const due = (c) => c.followUpAt && new Date(c.followUpAt) <= new Date();
 const scheduled = (c) => Boolean(c.followUpAt);
-const conversationStateLabel = (state) =>
+const conversationStateLabel = (state, route) =>
   ({
     started: "Novo contato",
     consent: "Aguardando autorização",
     route: "Escolhendo atendimento",
     collecting: "Triagem pelo bot",
     review: "Aguardando confirmação",
-    queued: "Aguardando equipe",
+    queued: route === "technical" ? "Em análise técnica" : route === "commercial" ? "Comercial acionado" : "Aguardando equipe",
     human: "Atendimento humano",
     closed: "Concluído",
   })[state] || "Atendimento";
@@ -1107,7 +1108,7 @@ function renderQueue() {
       (late(c) ? '<span class="tag late">SLA vencido</span>' : "") +
       (scheduled(c) ? '<span class="tag due">' + (due(c) ? 'Retorno atrasado' : 'Retorno agendado') + '</span>' : "") +
       '</div><div class="meta">' +
-      esc(conversationStateLabel(c.state)) +
+      esc(conversationStateLabel(c.state, c.route)) +
       (c.protocolId ? " · " + esc(c.protocolId) : "") +
       " · há " +
       age(c.updatedAt) +
@@ -1317,6 +1318,9 @@ async function open(id) {
     ? "Lead comercial — sem assumir"
     : "Assumir atendimento";
   document.getElementById("claim").disabled = mine || commercialLead;
+  const registerCustomer = document.getElementById("registerCustomer");
+  registerCustomer.classList.toggle("hidden", !commercialLead);
+  registerCustomer.disabled = !commercialLead;
   document.getElementById("more").disabled = commercialLead;
   document.getElementById("text").disabled = commercialLead;
   document.getElementById("text").placeholder = commercialLead
@@ -1539,6 +1543,19 @@ document.getElementById("claim").onclick = async () => {
       true,
     );
   } catch (e) {
+    note(e.message);
+  }
+};
+document.getElementById("registerCustomer").onclick = async () => {
+  if (!selected) return;
+  const button = document.getElementById("registerCustomer");
+  button.disabled = true;
+  try {
+    await api("/api/operator/conversations/" + selected.id + "/commercial/sync-ploomes", { method: "POST" });
+    await load();
+    note("Cliente e oportunidade cadastrados no Ploomes.", true);
+  } catch (e) {
+    button.disabled = false;
     note(e.message);
   }
 };
