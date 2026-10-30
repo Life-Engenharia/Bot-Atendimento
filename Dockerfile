@@ -20,6 +20,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist/src ./dist/src
+# Static branding assets are read by the API at runtime.
+COPY --from=build /app/src/public ./src/public
 COPY docs/api ./dist/docs/api
 
 USER node

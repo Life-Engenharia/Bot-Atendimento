@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -17,7 +18,7 @@ import type { OperationalDocument } from './infra/supabase/conversation-store.js
 import { PloomesClient } from './infra/ploomes/ploomes-client.js';
 
 export type AdminAppDependencies = {
-  environment?: Environment;
+  environment?: Partial<Environment>;
   operationalConfigurationStore?: OperationalConfigurationStore;
 };
 
@@ -67,7 +68,9 @@ const documentUploadSchema = z.object({
 });
 
 export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyInstance {
-  const environment = dependencies.environment ?? loadEnvironment();
+  const environment = dependencies.environment
+    ? { ...loadEnvironment({}), ...dependencies.environment }
+    : loadEnvironment();
   const supabaseStore =
     environment.SUPABASE_URL && environment.SUPABASE_API
       ? new SupabaseConversationStore(environment.SUPABASE_URL, environment.SUPABASE_API)
@@ -107,7 +110,7 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
   app.get('/assets/life-logo.png', async (_request, reply) =>
     reply
       .type('image/png')
-      .send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
+      .send(await readFile(resolve(process.cwd(), 'src/public/life-logo.png'))),
   );
   app.get('/', async (_request, reply) => {
     if (!store || !environment.ADMIN_DASHBOARD_TOKEN)
