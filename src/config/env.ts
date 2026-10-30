@@ -15,11 +15,17 @@ const environmentSchema = z
     COMMERCIAL_NOTIFICATION_PHONE_E164: z
       .string()
       .regex(/^\d{8,15}$/)
-      .optional(),
+      .default('5579999250532'),
     TECHNICAL_NOTIFICATION_PHONE_E164: z
       .string()
       .regex(/^\d{8,15}$/)
-      .optional(),
+      .default('5579998901667'),
+    COMMERCIAL_NOTIFICATION_EMAIL: z.string().email().default('vendas@life.eng.br'),
+    TECHNICAL_NOTIFICATION_EMAIL: z.string().email().default('contato@life.eng.br'),
+    OPERATIONAL_NOTIFICATION_EMAIL_MODE: z.enum(['test', 'department']).default('test'),
+    OPERATIONAL_NOTIFICATION_TEST_EMAIL: z.string().email().default('informatica@life.eng.br'),
+    COMMERCIAL_NOTIFICATION_TEMPLATE: z.string().min(1).default('life_nova_oportunidade_interna'),
+    TECHNICAL_NOTIFICATION_TEMPLATE: z.string().min(1).default('life_novo_chamado_interno'),
     ADMIN_PHONE_E164: z.string().regex(/^\d+$/).optional(),
     ADMIN_DASHBOARD_TOKEN: z.string().min(24).optional(),
     // A senha fica apenas no ambiente/Secret Manager. Os demais dados SMTP são

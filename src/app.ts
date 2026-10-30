@@ -46,7 +46,11 @@ import type { AppRole, AppUser } from './infra/supabase/conversation-store.js';
 import { PloomesClient } from './infra/ploomes/ploomes-client.js';
 import { CommercialPloomesSyncService } from './infra/ploomes/commercial-sync-service.js';
 import { SmtpEmailSender, smtpConfigurationFromSettings } from './infra/email/smtp-email-sender.js';
-import { OperationalNotifier } from './modules/internal_operations/application/operational-notifier.js';
+import {
+  OperationalNotifier,
+  OperationalEmailMessage,
+  OperationalEmailSender,
+} from './modules/internal_operations/application/operational-notifier.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -55,13 +59,15 @@ declare module 'fastify' {
 }
 
 export type AppDependencies = {
-  environment?: Environment;
+  environment?: Partial<Environment>;
   auditLog?: InMemoryAuditLog;
   webhookProcessor?: WebhookProcessor;
   menuService?: MenuService;
   persistedMenuService?: PersistedMenuService;
   operationalConfigurationStore?: OperationalConfigurationStore;
   outboundSender?: OutboundSender;
+  /** Permite testar as notificações operacionais sem acessar SMTP externo. */
+  operationalEmailSender?: OperationalEmailSender;
   /** Permite exercitar o painel de operação sem uma conexão real no Supabase. */
   supabaseStore?: SupabaseConversationStore;
 };
@@ -95,6 +101,10 @@ const smtpSettingSchema = z.object({
 });
 const operatorMessageSchema = z.object({ text: z.string().trim().min(1).max(4_000) });
 const operatorNoteSchema = z.object({ text: z.string().trim().min(1).max(2_000) });
+const transferOperatorSchema = z.object({
+  operator: z.string().trim().min(2).max(120),
+  reason: z.string().trim().min(3).max(500),
+});
 const followUpSchema = z.object({ followUpAt: z.string().datetime().nullable() });
 const closeConversationSchema = z.object({ resolutionNote: z.string().trim().min(3).max(2_000) });
 const manualPloomesSchema = z.object({ ploomesId: z.string().trim().min(1).max(120) });
@@ -136,7 +146,9 @@ const documentUploadSchema = z.object({
 });
 
 export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
-  const environment = dependencies.environment ?? loadEnvironment();
+  const environment = dependencies.environment
+    ? { ...loadEnvironment({}), ...dependencies.environment }
+    : loadEnvironment();
   const auditLog = dependencies.auditLog ?? new InMemoryAuditLog();
   const webhookProcessor = dependencies.webhookProcessor ?? new WebhookProcessor(auditLog);
   const menuService = dependencies.menuService ?? new MenuService(auditLog);
@@ -163,11 +175,38 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       ? new WhatsAppCloudClient(environment.META_ACCESS_TOKEN, environment.WHATSAPP_PHONE_NUMBER_ID)
       : undefined;
   const outboundSender = dependencies.outboundSender ?? whatsappClient;
+  const operationalEmailSender = dependencies.operationalEmailSender ?? (
+    operationalConfigurationStore && environment.SMTP_PASSWORD
+      ? {
+          send: async (message: OperationalEmailMessage) => {
+            const configuration = await smtpConfigurationFromSettings(
+              operationalConfigurationStore,
+              environment.SMTP_PASSWORD!,
+            );
+            if (!configuration)
+              throw new Error('Configure e salve o SMTP no Admin antes do disparo automático.');
+            await new SmtpEmailSender(configuration).send(message);
+          },
+        }
+      : undefined
+  );
+  const operationalEmailDestinations = environment.OPERATIONAL_NOTIFICATION_EMAIL_MODE === 'department'
+    ? {
+        commercial: environment.COMMERCIAL_NOTIFICATION_EMAIL ?? 'vendas@life.eng.br',
+        technical: environment.TECHNICAL_NOTIFICATION_EMAIL ?? 'contato@life.eng.br',
+      }
+    : {
+        commercial: environment.OPERATIONAL_NOTIFICATION_TEST_EMAIL ?? 'informatica@life.eng.br',
+        technical: environment.OPERATIONAL_NOTIFICATION_TEST_EMAIL ?? 'informatica@life.eng.br',
+      };
   const operationalNotifier = supabaseStore
     ? new OperationalNotifier(supabaseStore, outboundSender, {
         commercial: environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
         technical: environment.TECHNICAL_NOTIFICATION_PHONE_E164,
-      })
+      }, {
+        commercial: environment.COMMERCIAL_NOTIFICATION_TEMPLATE,
+        technical: environment.TECHNICAL_NOTIFICATION_TEMPLATE,
+      }, operationalEmailSender, operationalEmailDestinations)
     : undefined;
   const mediaIngestionService = supabaseStore
     ? new MediaIngestionService(
@@ -199,7 +238,21 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
           () => operatorEvents.emit('inbox'),
           operationalConfigurationStore,
           environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
-          ploomesClient,
+          ploomesClient
+            ? {
+                findContactByDocument: async (document: string) => {
+                  // A consulta ao Ploomes nunca pode bloquear a fila do WhatsApp.
+                  // Se a API externa estiver lenta/indisponível, o cadastro local
+                  // deve ser consultado em até poucos segundos.
+                  const ploomesLookup = ploomesClient.findContactByDocument(document);
+                  const timeout = new Promise<undefined>((resolve) =>
+                    setTimeout(() => resolve(undefined), 3500),
+                  );
+                  const ploomesContact = await Promise.race([ploomesLookup, timeout]).catch(() => undefined);
+                  return ploomesContact ?? (await supabaseStore.findContactByDocument(document));
+                },
+              }
+            : { findContactByDocument: (document: string) => supabaseStore.findContactByDocument(document) },
         )
       : undefined);
   const commercialSyncService =
@@ -337,7 +390,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   app.get('/assets/life-logo.png', async (_request, reply) =>
     reply
       .type('image/png')
-      .send(await readFile(fileURLToPath(new URL('./public/life-logo.png', import.meta.url)))),
+      // The TypeScript build does not copy static assets into dist/. Resolve
+      // from the project root so the logo works in both tsx and production.
+      .send(await readFile(resolve(process.cwd(), 'src/public/life-logo.png'))),
   );
 
   app.get('/admin', async (_request, reply) => {
@@ -1113,6 +1168,128 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     },
   );
 
+  app.get('/api/operator/operators', async (request, reply) => {
+    const actor = readOperatorSession(
+      request.headers.authorization,
+      environment.ADMIN_DASHBOARD_TOKEN,
+    );
+    if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore)
+      return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+    return supabaseStore.listOperatorDirectory();
+  });
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/operator/conversations/:id/transfer-operator',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      if (actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      if (conversation.state === 'closed')
+        return reply.code(409).send({ error: 'Atendimentos concluídos não podem ser transferidos.' });
+      if (
+        conversation.assignedOperator &&
+        conversation.assignedOperator !== actor.name &&
+        !['admin', 'coordination'].includes(actor.role)
+      )
+        return reply.code(409).send({ error: 'Só quem está atendendo pode transferir este caso.' });
+      const { operator, reason } = transferOperatorSchema.parse(request.body);
+      if (operator === actor.name)
+        return reply.code(409).send({ error: 'Escolha outra pessoa para receber o atendimento.' });
+      const target = (await supabaseStore.listOperatorDirectory()).find(
+        (user) => user.name === operator,
+      );
+      if (!target) return reply.code(404).send({ error: 'Pessoa não encontrada ou inativa.' });
+      if (!canAccessConversation(target, conversation.destinationArea))
+        return reply
+          .code(409)
+          .send({ error: 'Essa pessoa não atende o setor deste caso. Use a transferência de setor.' });
+      const moved = await supabaseStore.transferToOperator(conversation.id, actor.name, target, reason);
+      if (!moved) return reply.code(409).send({ error: 'Este atendimento já foi concluído.' });
+      logCorrelation(app, {
+        requestId: request.id,
+        conversationId: conversation.id,
+        action: 'operator.conversation_transferred_to_operator',
+      });
+      operatorEvents.emit('inbox');
+      return reply.code(204).send();
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/api/operator/conversations/:id/history',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore)
+        return reply.code(503).send({ error: 'Painel de atendimento não configurado.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      const history = await supabaseStore.listContactHistory(conversation.id);
+      // Cada pessoa só enxerga o histórico dos setores a que tem acesso.
+      return history.filter((item) => canAccessConversation(actor, item.destinationArea));
+    },
+  );
+
+  app.post<{ Params: { id: string; messageId: string } }>(
+    '/api/operator/conversations/:id/messages/:messageId/retry',
+    async (request, reply) => {
+      const actor = readOperatorSession(
+        request.headers.authorization,
+        environment.ADMIN_DASHBOARD_TOKEN,
+      );
+      if (!actor) return reply.code(401).send({ error: 'Não autorizado.' });
+      if (!supabaseStore || !outboundSender)
+        return reply.code(503).send({ error: 'Envio pelo WhatsApp ainda não está configurado.' });
+      if (actor.role === 'viewer')
+        return reply.code(403).send({ error: 'Seu perfil é somente consulta.' });
+      const conversation = await supabaseStore.getOperatorConversation(request.params.id);
+      if (!conversation || !canAccessConversation(actor, conversation.destinationArea))
+        return reply.code(403).send({ error: 'Seu cargo não pode acessar esta conversa.' });
+      if (conversation.state === 'closed')
+        return reply.code(409).send({ error: 'Reabra o atendimento antes de reenviar.' });
+      if (conversation.assignedOperator !== actor.name)
+        return reply.code(409).send({ error: 'Assuma a conversa antes de reenviar.' });
+      const message = await supabaseStore.getOutboundMessage(conversation.id, request.params.messageId);
+      if (!message || !message.content)
+        return reply.code(404).send({ error: 'Mensagem não encontrada.' });
+      if (!message.deliveryStatus?.startsWith('failed'))
+        return reply.code(409).send({ error: 'Só mensagens com falha de envio podem ser reenviadas.' });
+      let delivery;
+      try {
+        delivery = await outboundSender.sendText(conversation.contactPhone, message.content);
+      } catch (error) {
+        await supabaseStore.audit('operator.message_retry_failed', actor.name, {
+          conversationId: conversation.id,
+          error: error instanceof Error ? error.message.slice(0, 500) : 'Falha de envio',
+        });
+        return reply.code(502).send({
+          error: 'O WhatsApp não aceitou o reenvio. Confira a janela de 24 horas e tente novamente.',
+        });
+      }
+      await supabaseStore.saveOutbound(conversation.id, message.content, {
+        messageId: delivery.messageId,
+        status: 'sent',
+      });
+      await supabaseStore.markMessageRetried(message.id, actor.name, conversation.id);
+      operatorEvents.emit('inbox');
+      return reply.code(201).send({ sent: true });
+    },
+  );
+
   app.post<{ Params: { id: string }; Body: unknown }>(
     '/api/operator/conversations/:id/notes',
     async (request, reply) => {
@@ -1318,7 +1495,11 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       const messages = incomingMessages(request.body);
       const deliveryStatuses = incomingDeliveryStatuses(request.body);
       if (supabaseStore && deliveryStatuses.length) {
-        await Promise.all(
+        // Atualizar status de entrega é telemetria e não pode bloquear o
+        // processamento de mensagens. Durante uma lentidão do Supabase,
+        // aguardar aqui fazia o webhook expirar e deixava o cliente sem
+        // resposta, mesmo quando a mensagem já havia chegado à aplicação.
+        void Promise.all(
           deliveryStatuses.map((delivery) => {
             const status = ['sent', 'delivered', 'read', 'failed'].includes(delivery.status)
               ? (delivery.status as 'sent' | 'delivered' | 'read' | 'failed')
@@ -1331,7 +1512,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
               .join(' · ');
             return supabaseStore.updateMetaDeliveryStatus(delivery.id, status, error);
           }),
-        );
+        ).catch((error) => {
+          request.log.warn({ err: error }, 'meta_delivery_status_update_failed');
+        });
       }
       for (const message of messages) {
         logCorrelation(app, {
@@ -1342,6 +1525,14 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       }
       if (persistedMenuService && supabaseStore) {
         try {
+          // Um comando explícito de reinício invalida mensagens antigas ainda
+          // aguardando na fila para o mesmo contato.
+          for (const message of messages) {
+            const restart = String(message.text ?? '').trim().toLocaleLowerCase('pt-BR');
+            if (/^\/?(menu|inicio|início|reiniciar|recomecar|recomeçar)$/.test(restart)) {
+              await supabaseStore.discardQueuedMessagesForContact(message.from);
+            }
+          }
           const enqueued = await supabaseStore.enqueueWebhookMessages(messages);
           scheduleWebhookDrain();
           return reply.code(200).send({
