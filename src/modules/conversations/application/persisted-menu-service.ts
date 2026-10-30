@@ -6,7 +6,7 @@ import {
   commercialServices,
   commercialServiceByOption,
   commercialServiceMenu,
-} from '../../commercial/domain/commercial-services.js'; 
+} from '../../commercial/domain/commercial-services.js';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
@@ -43,6 +43,12 @@ export type OutboundSender = {
     buttonText: string,
     rows: Array<{ id: string; title: string; description?: string }>,
     sectionTitle?: string,
+  ): Promise<{ messageId: string }>;
+  sendTemplate?(
+    to: string,
+    name: string,
+    languageCode?: string,
+    parameters?: string[],
   ): Promise<{ messageId: string }>;
 };
 
@@ -592,87 +598,87 @@ export class PersistedMenuService {
           });
         }
       } else {
-      const editing = conversation.context.editingField as CommercialContextField | undefined;
-      if (conversation.context.selectingEditField) {
-        const field = commercialFieldFromLabel(stripEditPrefix(text));
-        if (!field) responseText = 'Escolha o dado que deseja corrigir na lista acima.';
-        else {
-          delete conversation.context.selectingEditField;
-          conversation.context.editingField = field;
-          responseText = commercialQuestion(field);
-        }
-      } else {
-        const nextField = editing ?? nextCommercialField(conversation);
-        if (!nextField) throw new Error('Não há campo comercial pendente.');
-        if (!input) responseText = commercialQuestion(nextField);
-        else {
-          const value = input;
-          if (
-            nextField === 'cnpj' &&
-            !isOptionalDocumentAnswer(value) &&
-            !isValidCnpjOrCpf(value)
-          ) {
-            responseText =
-              'Informe um CPF válido com 11 dígitos ou CNPJ válido com 14 caracteres (as primeiras 12 posições podem conter letras ou números). Se não souber, responda “não sei” para continuar e deixar essa informação pendente.';
-          } else if (
-            nextField === 'email' &&
-            value.toLocaleLowerCase('pt-BR') !== 'pular' &&
-            !isValidEmail(value)
-          ) {
-            responseText =
-              'Informe um e-mail válido ou responda “pular” para continuar sem esse dado.';
-          } else if (nextField === 'contactPhone' && !isValidPhone(value)) {
-            responseText =
-              'Informe o telefone com DDD, somente números ou no formato +55 79 99999-9999.';
-          } else if (nextField === 'company' && isGreetingOnly(value)) {
-            // Mensagens atrasadas/duplicadas (ex.: "oi") não podem virar o nome
-            // da empresa quando o cliente ainda está respondendo ao cadastro.
-            responseText = commercialQuestion('company');
-          } else {
-            conversation.context[nextField] =
-              nextField === 'email' && normalize(value) === 'pular'
-                ? 'não informado'
-                : nextField === 'cnpj' && isOptionalDocumentAnswer(value)
-                  ? 'pendente de confirmação'
-                  : value;
-            if (nextField === 'cnpj' && !isOptionalDocumentAnswer(value) && this.commercialDirectory) {
-              try {
-                const contact = await this.commercialDirectory.findContactByDocument(value);
-                if (contact) {
-                  conversation.context.company = String(contact.CompanyName ?? contact.LegalName ?? contact.Name ?? '');
-                  conversation.context.contactName = String(contact.Name ?? conversation.context.contactName ?? '');
-                  if (contact.Phone && !conversation.context.contactPhone)
-                    conversation.context.contactPhone = String(contact.Phone);
-                  if (contact.Email && !conversation.context.email)
-                    conversation.context.email = String(contact.Email);
-                  await this.store.audit('commercial.contact_found_by_document', 'ploomes', {
-                    phone: message.from,
-                    document: value,
-                    ploomesId: contact.Id,
-                  });
-                }
-              } catch {
-                // A CRM lookup must never block the customer flow.
-              }
-            }
-            delete conversation.context.editingField;
-            const followingField = nextCommercialField(conversation);
-            if (followingField) {
+        const editing = conversation.context.editingField as CommercialContextField | undefined;
+        if (conversation.context.selectingEditField) {
+          const field = commercialFieldFromLabel(stripEditPrefix(text));
+          if (!field) responseText = 'Escolha o dado que deseja corrigir na lista acima.';
+          else {
+            delete conversation.context.selectingEditField;
+            conversation.context.editingField = field;
+            responseText = commercialQuestion(field);
+          }
+        } else {
+          const nextField = editing ?? nextCommercialField(conversation);
+          if (!nextField) throw new Error('Não há campo comercial pendente.');
+          if (!input) responseText = commercialQuestion(nextField);
+          else {
+            const value = input;
+            if (
+              nextField === 'cnpj' &&
+              !isOptionalDocumentAnswer(value) &&
+              !isValidCnpjOrCpf(value)
+            ) {
               responseText =
-                nextField === 'cnpj' && isOptionalDocumentAnswer(value)
-                  ? 'Tudo bem, deixaremos o CPF/CNPJ pendente de confirmação. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.'
-                  : commercialQuestion(followingField);
-            }
-            else {
-              conversation.state = 'review';
-              responseText = commercialSummary(conversation);
-              await this.store.audit('commercial.review_ready', 'customer', {
-                phone: message.from,
-              });
+                'Informe um CPF válido com 11 dígitos ou CNPJ válido com 14 caracteres (as primeiras 12 posições podem conter letras ou números). Se não souber, responda “não sei” para continuar e deixar essa informação pendente.';
+            } else if (
+              nextField === 'email' &&
+              value.toLocaleLowerCase('pt-BR') !== 'pular' &&
+              !isValidEmail(value)
+            ) {
+              responseText =
+                'Informe um e-mail válido ou responda “pular” para continuar sem esse dado.';
+            } else if (nextField === 'contactPhone' && !isValidPhone(value)) {
+              responseText =
+                'Informe o telefone com DDD, somente números ou no formato +55 79 99999-9999.';
+            } else if (nextField === 'company' && isGreetingOnly(value)) {
+              // Mensagens atrasadas/duplicadas (ex.: "oi") não podem virar o nome
+              // da empresa quando o cliente ainda está respondendo ao cadastro.
+              responseText = commercialQuestion('company');
+            } else {
+              conversation.context[nextField] =
+                nextField === 'email' && normalize(value) === 'pular'
+                  ? 'não informado'
+                  : nextField === 'cnpj' && isOptionalDocumentAnswer(value)
+                    ? 'pendente de confirmação'
+                    : value;
+              if (nextField === 'cnpj' && !isOptionalDocumentAnswer(value) && this.commercialDirectory) {
+                try {
+                  const contact = await this.commercialDirectory.findContactByDocument(value);
+                  if (contact) {
+                    conversation.context.company = String(contact.CompanyName ?? contact.LegalName ?? contact.Name ?? '');
+                    conversation.context.contactName = String(contact.Name ?? conversation.context.contactName ?? '');
+                    if (contact.Phone && !conversation.context.contactPhone)
+                      conversation.context.contactPhone = String(contact.Phone);
+                    if (contact.Email && !conversation.context.email)
+                      conversation.context.email = String(contact.Email);
+                    await this.store.audit('commercial.contact_found_by_document', 'ploomes', {
+                      phone: message.from,
+                      document: value,
+                      ploomesId: contact.Id,
+                    });
+                  }
+                } catch {
+                  // A CRM lookup must never block the customer flow.
+                }
+              }
+              delete conversation.context.editingField;
+              const followingField = nextCommercialField(conversation);
+              if (followingField) {
+                responseText =
+                  nextField === 'cnpj' && isOptionalDocumentAnswer(value)
+                    ? 'Tudo bem, deixaremos o CPF/CNPJ pendente de confirmação. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.'
+                    : commercialQuestion(followingField);
+              }
+              else {
+                conversation.state = 'review';
+                responseText = commercialSummary(conversation);
+                await this.store.audit('commercial.review_ready', 'customer', {
+                  phone: message.from,
+                });
+              }
             }
           }
         }
-      }
       }
     } else if (conversation.state === 'review' && conversation.route === 'commercial') {
       if (text === 'confirmar' || text === 'sim') {
@@ -1180,6 +1186,8 @@ function formatPhoneForDisplay(value: string): string {
   const digits = value.replace(/\D/g, '');
   if (digits.length === 13 && digits.startsWith('55'))
     return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+  if (digits.length === 12 && digits.startsWith('55'))
+    return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`;
   return value;
 }
 
