@@ -1,3 +1,5 @@
+param([string]$OnlyFile)
+
 Add-Type -AssemblyName System.Drawing
 
 $source = 'C:\Users\Setor Desenvolviment\Downloads\Assinatura Corporativa Life Engenharia (2).png'
@@ -9,7 +11,10 @@ $contacts = @(
   @{ File = 'comercial'; Sector = 'Comercial'; Phone = '+55 79 99925-0532'; Email = 'vendas@life.eng.br'; HasPhone = $true },
   @{ File = 'renilson-administrador'; Sector = 'Renilson | Administrador'; Phone = ''; Email = 'administracao@life.eng.br'; HasPhone = $false },
   @{ File = 'juridico'; Sector = ('Jur' + $acuteI + 'dico'); Phone = ''; Email = 'juridico@life.eng.br'; HasPhone = $false },
-  @{ File = 'contato'; Sector = 'Contato'; Phone = ''; Email = 'contato@life.eng.br'; HasPhone = $false }
+  @{ File = 'contato'; Sector = 'Contato'; Phone = ''; Email = 'contato@life.eng.br'; HasPhone = $false },
+  @{ File = 'vendas'; Name = 'Gilmar Nunes'; Title = 'Vendas'; Subtitle = ''; Phone = '+55 79 99925-0532'; Email = 'vendas@life.eng.br'; HasPhone = $true },
+  @{ File = 'moises-freire'; Sector = ('Mois' + [char]0x00E9 + 's Freire de Jesus'); Title = 'Engenheiro Mecânico'; Registration = 'CREA-SE nº 272352782-4'; Phone = '+55 79 3214-1460'; Email = 'refrigeracao@life.eng.br'; HasPhone = $true },
+  @{ File = 'engenharia-de-software'; Name = ('Jo' + [char]0x00E3 + 'o Victor Vasconcelos'); Title = 'Engenheiro de Software'; Subtitle = ('Especialista em Ciberseguran' + [char]0x00E7 + [char]0x00E3 + 'a'); Phone = '+55 79 99116-2353'; Email = 'informatica@life.eng.br'; HasPhone = $true }
 )
 
 function Clear-TextArea {
@@ -37,6 +42,7 @@ $qualityParameters = New-Object System.Drawing.Imaging.EncoderParameters 1
 $qualityParameters.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 96L
 
 foreach ($contact in $contacts) {
+  if ($OnlyFile -and $contact.File -ne $OnlyFile) { continue }
   $canvas = New-Object System.Drawing.Bitmap 2172, 724
   $graphics = [System.Drawing.Graphics]::FromImage($canvas)
   $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
@@ -65,15 +71,29 @@ foreach ($contact in $contacts) {
     $webBadge.Dispose()
   }
 
-  $sectorFontSize = if ($contact.Sector.Length -gt 20) { 43 } else { 49 }
+  $sectorText = if ($contact.Name) { $contact.Name } elseif ($contact.Sector) { $contact.Sector } else { $contact.Title }
+  $sectorFontSize = if ($sectorText.Length -gt 20) { 43 } else { 49 }
   $sectorFont = New-Object System.Drawing.Font 'Arial', $sectorFontSize, ([System.Drawing.FontStyle]::Bold)
+  $titleFont = New-Object System.Drawing.Font 'Arial', 30, ([System.Drawing.FontStyle]::Regular)
+  $registrationFont = New-Object System.Drawing.Font 'Arial', 25, ([System.Drawing.FontStyle]::Regular)
   $emailFont = New-Object System.Drawing.Font 'Arial', 28, ([System.Drawing.FontStyle]::Regular)
   $phoneFont = New-Object System.Drawing.Font 'Arial', 35, ([System.Drawing.FontStyle]::Regular)
   $siteFont = New-Object System.Drawing.Font 'Arial', 32, ([System.Drawing.FontStyle]::Bold)
   $ink = [System.Drawing.Color]::FromArgb(18, 54, 103)
   $inkBrush = New-Object System.Drawing.SolidBrush $ink
 
-  $graphics.DrawString($contact.Sector, $sectorFont, $inkBrush, 1075, 120)
+  if ($contact.Name) {
+    $sectorFont = New-Object System.Drawing.Font 'Arial', 40, ([System.Drawing.FontStyle]::Bold)
+    $graphics.DrawString($sectorText, $sectorFont, $inkBrush, 1075, 86)
+    $graphics.DrawString($contact.Title, $titleFont, $inkBrush, 1075, 145)
+    $graphics.DrawString($contact.Subtitle, $registrationFont, $inkBrush, 1075, 185)
+  } else {
+    $graphics.DrawString($sectorText, $sectorFont, $inkBrush, 1075, 105)
+  }
+  if ($contact.Registration) {
+    $graphics.DrawString($contact.Title, $titleFont, $inkBrush, 1075, 168)
+    $graphics.DrawString($contact.Registration, $registrationFont, $inkBrush, 1075, 208)
+  }
   if ($contact.HasPhone) {
     $graphics.DrawString($contact.Phone, $phoneFont, $inkBrush, 1190, 305)
     $graphics.DrawString($contact.Email, $emailFont, $inkBrush, 1190, 412)
@@ -88,6 +108,8 @@ foreach ($contact in $contacts) {
 
   $inkBrush.Dispose()
   $sectorFont.Dispose()
+  $titleFont.Dispose()
+  $registrationFont.Dispose()
   $emailFont.Dispose()
   $phoneFont.Dispose()
   $siteFont.Dispose()
