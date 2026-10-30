@@ -12,6 +12,8 @@
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:local": "npm run typecheck && npm test && npm run simulate:memory",
+    "test:commercial": "tsx scripts/simulate-whatsapp.ts",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
