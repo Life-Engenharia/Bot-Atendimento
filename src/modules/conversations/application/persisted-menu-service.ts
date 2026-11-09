@@ -58,6 +58,8 @@ const routeMenu =
   'Perfeito! Como posso te ajudar hoje?\n\n1. Quero contratar um serviço ou pedir um orçamento\n2. Já sou cliente Life e preciso de assistência técnica\n3. Quero falar com uma pessoa';
 const humanMessage =
   'Claro! Vou encaminhar sua solicitação para uma pessoa da equipe Life. Assim que possível, ela seguirá com você por aqui.';
+const afterHoursNotice =
+  '⚠️ Estamos fora do horário regular de atendimento (segunda a sexta, das 7h às 18h). Aos sábados e domingos, atendemos somente chamados de plantão. Pode seguir com sua solicitação por aqui.';
 
 export class PersistedMenuService {
   /**
@@ -82,7 +84,7 @@ export class PersistedMenuService {
     private readonly commercialDirectory?: {
       findContactByDocument(document: string): Promise<Record<string, unknown> | undefined>;
     },
-  ) { }
+  ) {}
 
   async process(
     messages: IncomingMessage[],
@@ -94,20 +96,24 @@ export class PersistedMenuService {
       groups.set(message.from, group);
     }
 
-    const results = await Promise.all([...groups.entries()].map(async ([from, group]) => {
-      const previous = this.contactLocks.get(from) ?? Promise.resolve();
-      let release!: () => void;
-      const current = new Promise<void>((resolve) => { release = resolve; });
-      const chain = previous.then(() => current);
-      this.contactLocks.set(from, chain);
-      await previous;
-      try {
-        return await this.processUnlocked(group);
-      } finally {
-        release();
-        if (this.contactLocks.get(from) === chain) this.contactLocks.delete(from);
-      }
-    }));
+    const results = await Promise.all(
+      [...groups.entries()].map(async ([from, group]) => {
+        const previous = this.contactLocks.get(from) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const chain = previous.then(() => current);
+        this.contactLocks.set(from, chain);
+        await previous;
+        try {
+          return await this.processUnlocked(group);
+        } finally {
+          release();
+          if (this.contactLocks.get(from) === chain) this.contactLocks.delete(from);
+        }
+      }),
+    );
 
     return results.reduce(
       (acc, result) => ({
@@ -116,7 +122,12 @@ export class PersistedMenuService {
         acceptedMessages: [...acc.acceptedMessages, ...result.acceptedMessages],
         responses: [...acc.responses, ...result.responses],
       }),
-      { processed: 0, duplicates: 0, acceptedMessages: [] as IncomingMessage[], responses: [] as BotResponse[] },
+      {
+        processed: 0,
+        duplicates: 0,
+        acceptedMessages: [] as IncomingMessage[],
+        responses: [] as BotResponse[],
+      },
     );
   }
 
@@ -144,11 +155,11 @@ export class PersistedMenuService {
       if (administrativeResponse) await this.store.markInboundProcessed(message.id);
       responses.push(
         administrativeResponse ??
-        (accepted.surveyResponse === 'resolved'
-          ? await this.handleResolutionSurvey(message, accepted.conversation)
-          : accepted.reopened
-            ? await this.handleReopened(message, accepted.conversation)
-            : await this.handle(message, accepted.conversation)),
+          (accepted.surveyResponse === 'resolved'
+            ? await this.handleResolutionSurvey(message, accepted.conversation)
+            : accepted.reopened
+              ? await this.handleReopened(message, accepted.conversation)
+              : await this.handle(message, accepted.conversation)),
       );
     }
     return { processed, duplicates, acceptedMessages, responses };
@@ -292,11 +303,17 @@ export class PersistedMenuService {
     // Saudações isoladas também iniciam uma nova sessão quando o contato ficou
     // preso em uma etapa automática anterior. Não fazemos isso em atendimentos
     // humanos/enfileirados, para nunca apagar uma conversa assumida pela equipe.
-    const restartCommand = ['reiniciar', 'recomeçar', 'recomecar', 'menu', 'início', 'inicio'].includes(
-      text.replace(/^\//, ''),
-    );
-    const staleGreeting = ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite'].includes(text)
-      && ['collecting', 'review', 'closed'].includes(conversation.state);
+    const restartCommand = [
+      'reiniciar',
+      'recomeçar',
+      'recomecar',
+      'menu',
+      'início',
+      'inicio',
+    ].includes(text.replace(/^\//, ''));
+    const staleGreeting =
+      ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite'].includes(text) &&
+      ['collecting', 'review', 'closed'].includes(conversation.state);
     if (restartCommand || staleGreeting) {
       // A queued conversation without an assigned operator is still safe to
       // restart: it has not been assumed by a human yet. Keep the guard for
@@ -313,7 +330,12 @@ export class PersistedMenuService {
       conversation.state = 'consent';
       conversation.route = null;
       conversation.context = {};
-      return this.finish(conversation, message.from, consentMessage, message.id);
+      return this.finish(
+        conversation,
+        message.from,
+        await this.withBusinessHoursNotice(conversation, consentMessage),
+        message.id,
+      );
     }
     let responseText: string;
     if (conversation.state === 'consent') {
@@ -353,8 +375,13 @@ export class PersistedMenuService {
             : inferRoute(input) === 'commercial'
               ? 'Entendi que você quer falar sobre um serviço ou orçamento. '
               : 'Entendi que você precisa de atendimento. ';
-        responseText = `${intentAcknowledgement}Para organizar sua solicitação e encaminhá-la ao time responsável, preciso registrar as informações desta conversa. Podemos continuar?\n\n1. Sim, vamos lá\n2. Prefiro falar com uma pessoa\n\nResponda 1 para autorizar o registro e continuar, ou 2 para falar com uma pessoa.`;
+        responseText = await this.withBusinessHoursNotice(
+          conversation,
+          `${intentAcknowledgement}Para organizar sua solicitação e encaminhá-la ao time responsável, preciso registrar as informações desta conversa. Podemos continuar?\n\n1. Sim, vamos lá\n2. Prefiro falar com uma pessoa\n\nResponda 1 para autorizar o registro e continuar, ou 2 para falar com uma pessoa.`,
+        );
       }
+      if (firstGreeting)
+        responseText = await this.withBusinessHoursNotice(conversation, responseText);
     } else if (conversation.state === 'route') {
       if (isHuman(text) || text === '3') {
         conversation.state = 'human';
@@ -424,7 +451,8 @@ export class PersistedMenuService {
         conversation.context.service = service;
         if (service === 'Outro serviço') {
           conversation.context.awaitingCustomService = true;
-          responseText = 'Perfeito. Qual outro serviço você procura? Descreva brevemente o serviço.';
+          responseText =
+            'Perfeito. Qual outro serviço você procura? Descreva brevemente o serviço.';
         } else {
           responseText = `Perfeito, você selecionou ${service}. Em qual cidade e unidade será o atendimento?`;
         }
@@ -438,19 +466,30 @@ export class PersistedMenuService {
         TechnicalContextField | undefined;
       if (conversation.context.awaitingTechnicalDocument) {
         if (!isValidCnpjOrCpf(input) && !isOptionalDocumentAnswer(input)) {
-          responseText = 'Informe um CPF válido com 11 dígitos ou CNPJ válido com 14 caracteres, ou responda “pessoa física”.';
+          responseText =
+            'Informe um CPF válido com 11 dígitos ou CNPJ válido com 14 caracteres, ou responda “pessoa física”.';
         } else {
           delete conversation.context.awaitingTechnicalDocument;
           if (!isOptionalDocumentAnswer(input)) {
             conversation.context.cnpj = input.replace(/[^0-9A-Z]/gi, '').toUpperCase();
-            const contact = await this.commercialDirectory?.findContactByDocument(input).catch(() => undefined);
+            const contact = await this.commercialDirectory
+              ?.findContactByDocument(input)
+              .catch(() => undefined);
             const companyName = contact
-              ? String(contact.CompanyName ?? contact.LegalName ?? contact.TradeName ?? contact.Name ?? '').trim()
+              ? String(
+                  contact.CompanyName ??
+                    contact.LegalName ??
+                    contact.TradeName ??
+                    contact.Name ??
+                    '',
+                ).trim()
               : '';
             if (companyName) conversation.context.company = companyName;
           }
           const following = nextTechnicalField(conversation);
-          responseText = following ? technicalQuestion(following, conversation) : technicalQuestion('equipment', conversation);
+          responseText = following
+            ? technicalQuestion(following, conversation)
+            : technicalQuestion('equipment', conversation);
         }
       } else if (conversation.context.selectingTechnicalEditField) {
         if (text === 'editar outros dados' || text === 'mais dados técnicos') {
@@ -506,10 +545,7 @@ export class PersistedMenuService {
             // Persist the normalized answer before asking for confirmation. If
             // the conversation is reloaded between webhook deliveries, the
             // next message must not re-enter this same conflict branch.
-            conversation.context.operationalImpact = canonicalTechnicalAnswer(
-              nextField,
-              input,
-            );
+            conversation.context.operationalImpact = canonicalTechnicalAnswer(nextField, input);
             conversation.context.impactConfirmation = input;
             responseText =
               'Só para confirmar a urgência: você informou que o equipamento “apagou de vez”, mas agora mencionou operação parcial. Ele está TOTALMENTE PARADO, PARCIALMENTE OPERANTE ou já voltou a FUNCIONAR?';
@@ -525,7 +561,13 @@ export class PersistedMenuService {
               try {
                 const contact = await this.commercialDirectory?.findContactByDocument(input);
                 const companyName = contact
-                  ? String(contact.CompanyName ?? contact.LegalName ?? contact.TradeName ?? contact.Name ?? '').trim()
+                  ? String(
+                      contact.CompanyName ??
+                        contact.LegalName ??
+                        contact.TradeName ??
+                        contact.Name ??
+                        '',
+                    ).trim()
                   : '';
                 if (companyName) {
                   conversation.context.company = companyName;
@@ -543,11 +585,13 @@ export class PersistedMenuService {
                   technicalCompanyResponse = `Encontrei o cadastro *${companyName}* para o documento informado. Vou usar esses dados no chamado.\n\n${technicalQuestion('location', conversation)}`;
                 } else {
                   conversation.context.company = '';
-                  technicalCompanyResponse = 'Não localizei esse documento no cadastro. Qual é o nome da empresa ou instituição responsável pela unidade?';
+                  technicalCompanyResponse =
+                    'Não localizei esse documento no cadastro. Qual é o nome da empresa ou instituição responsável pela unidade?';
                 }
               } catch {
                 conversation.context.company = '';
-                technicalCompanyResponse = 'Não consegui consultar o cadastro agora. Qual é o nome da empresa ou instituição responsável pela unidade?';
+                technicalCompanyResponse =
+                  'Não consegui consultar o cadastro agora. Qual é o nome da empresa ou instituição responsável pela unidade?';
               }
             }
             delete conversation.context.editingTechnicalField;
@@ -587,7 +631,8 @@ export class PersistedMenuService {
     } else if (conversation.state === 'collecting' && conversation.route === 'commercial') {
       if (conversation.context.awaitingCustomService) {
         if (input.length < 3) {
-          responseText = 'Descreva brevemente qual outro serviço você procura (por exemplo: instalação de automação predial).';
+          responseText =
+            'Descreva brevemente qual outro serviço você procura (por exemplo: instalação de automação predial).';
         } else {
           conversation.context.customService = input;
           delete conversation.context.awaitingCustomService;
@@ -641,12 +686,20 @@ export class PersistedMenuService {
                   : nextField === 'cnpj' && isOptionalDocumentAnswer(value)
                     ? 'pendente de confirmação'
                     : value;
-              if (nextField === 'cnpj' && !isOptionalDocumentAnswer(value) && this.commercialDirectory) {
+              if (
+                nextField === 'cnpj' &&
+                !isOptionalDocumentAnswer(value) &&
+                this.commercialDirectory
+              ) {
                 try {
                   const contact = await this.commercialDirectory.findContactByDocument(value);
                   if (contact) {
-                    conversation.context.company = String(contact.CompanyName ?? contact.LegalName ?? contact.Name ?? '');
-                    conversation.context.contactName = String(contact.Name ?? conversation.context.contactName ?? '');
+                    conversation.context.company = String(
+                      contact.CompanyName ?? contact.LegalName ?? contact.Name ?? '',
+                    );
+                    conversation.context.contactName = String(
+                      contact.Name ?? conversation.context.contactName ?? '',
+                    );
                     if (contact.Phone && !conversation.context.contactPhone)
                       conversation.context.contactPhone = String(contact.Phone);
                     if (contact.Email && !conversation.context.email)
@@ -668,8 +721,7 @@ export class PersistedMenuService {
                   nextField === 'cnpj' && isOptionalDocumentAnswer(value)
                     ? 'Tudo bem, deixaremos o CPF/CNPJ pendente de confirmação. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.'
                     : commercialQuestion(followingField);
-              }
-              else {
+              } else {
                 conversation.state = 'review';
                 responseText = commercialSummary(conversation);
                 await this.store.audit('commercial.review_ready', 'customer', {
@@ -805,12 +857,12 @@ export class PersistedMenuService {
       const send = () =>
         list && this.outboundSender!.sendList
           ? this.outboundSender!.sendList(
-            to,
-            text,
-            selectingCorrection ? 'Corrigir dado' : 'Ver serviços',
-            list,
-            selectingCorrection ? 'Dados para corrigir' : 'Serviços',
-          )
+              to,
+              text,
+              selectingCorrection ? 'Corrigir dado' : 'Ver serviços',
+              list,
+              selectingCorrection ? 'Dados para corrigir' : 'Serviços',
+            )
           : buttons && this.outboundSender!.sendButtons
             ? this.outboundSender!.sendButtons(to, text, buttons)
             : this.outboundSender!.sendText(to, text);
@@ -874,6 +926,16 @@ export class PersistedMenuService {
     }
   }
 
+  private async withBusinessHoursNotice(
+    conversation: StoredConversation,
+    response: string,
+  ): Promise<string> {
+    if (conversation.context.businessHoursNoticeSent || !isOutsideRegularBusinessHours())
+      return response;
+    conversation.context.businessHoursNoticeSent = true;
+    return `${afterHoursNotice}\n\n${response}`;
+  }
+
   private async refineSupportReply(
     conversation: StoredConversation,
     latestCustomerMessage: string | undefined,
@@ -889,6 +951,18 @@ export class PersistedMenuService {
       return reply;
     }
   }
+}
+
+function isOutsideRegularBusinessHours(date = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'short',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const weekday = parts.find((part) => part.type === 'weekday')?.value;
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  return !['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday ?? '') || hour < 7 || hour >= 18;
 }
 
 type CommercialContextField =
@@ -1019,7 +1093,9 @@ function suggestTechnicalPriority(conversation: StoredConversation): {
 }
 
 function normalizeYesNoUnknown(value: string): 'sim' | 'não' | 'não sei' | undefined {
-  const input = normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const input = normalize(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
   if (/^(nao sei|nao informado|desconheco|incerto|incerta)$/.test(input)) return 'não sei';
   if (/^(nao|n|negativo|sem risco|nenhum|nao ha|nao existe)(\b|\s|$)/.test(input)) return 'não';
   if (/^(sim|s|ha|existe|tem|possui|positivo)(\b|\s|$)/.test(input)) return 'sim';
@@ -1029,7 +1105,9 @@ function normalizeYesNoUnknown(value: string): 'sim' | 'não' | 'não sei' | und
 function normalizeOperationalImpact(
   value: string,
 ): 'totalmente parado' | 'parcialmente operante' | 'funcionando' | 'não sei' | undefined {
-  const input = normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const input = normalize(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
   if (/^(nao sei|nao informado|desconheco)$/.test(input)) return 'não sei';
   if (/(totalmente parado|parou totalmente|parado|inoperante|nao liga|apagou|desligou)/.test(input))
     return 'totalmente parado';
@@ -1091,9 +1169,9 @@ function commercialQuestion(field: CommercialContextField): string {
   const questions: Record<CommercialContextField, string> = {
     location: 'Em qual cidade e unidade será o atendimento?',
     contactName: 'Qual é o seu nome para identificação?',
-    company: 'Não localizei esse documento no cadastro. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.',
-    cnpj:
-      'Você sabe o CNPJ da empresa? Envie os 14 dígitos ou responda “não sei” para continuar e deixar essa informação pendente de confirmação.',
+    company:
+      'Não localizei esse documento no cadastro. Qual é o nome da empresa ou instituição? Se for pessoa física, responda “pessoa física”.',
+    cnpj: 'Você sabe o CNPJ da empresa? Envie os 14 dígitos ou responda “não sei” para continuar e deixar essa informação pendente de confirmação.',
     contactPhone: 'Qual telefone devemos usar para retorno?',
     email: 'Qual e-mail devemos usar para retorno? Se preferir não informar, responda “pular”.',
     timeline: 'Qual é o prazo desejado para este atendimento?',
@@ -1166,7 +1244,9 @@ function isEditRequest(value: string): boolean {
   return /^(editar|corrigir|alterar)\s+/.test(value);
 }
 function isBroadEditRequest(value: string): boolean {
-  return /^(editar|corrigir|alterar)( dados| os dados| as informações| as informacoes)?$/.test(value);
+  return /^(editar|corrigir|alterar)( dados| os dados| as informações| as informacoes)?$/.test(
+    value,
+  );
 }
 function stripEditPrefix(value: string): string {
   return value.replace(/^(?:editar|corrigir|alterar)(?:\s+dados)?\s+/, '').trim();
@@ -1221,7 +1301,7 @@ function describeMedia(media: NonNullable<IncomingMessage['media']>): string {
       media.map(
         (item) =>
           ({ image: 'uma imagem', audio: 'um áudio', video: 'um vídeo', document: 'um documento' })[
-          item.type
+            item.type
           ],
       ),
     ),
@@ -1252,7 +1332,8 @@ export function isValidCnpjOrCpf(value: string): boolean {
   if (/^\d{11}$/.test(document)) {
     if (/^(\d)\1+$/.test(document)) return false;
     const digit = (base: string, weights: number[]) => {
-      const remainder = [...base].reduce((sum, char, index) => sum + Number(char) * weights[index], 0) % 11;
+      const remainder =
+        [...base].reduce((sum, char, index) => sum + Number(char) * weights[index], 0) % 11;
       return remainder < 2 ? 0 : 11 - remainder;
     };
     const first = digit(document.slice(0, 9), [10, 9, 8, 7, 6, 5, 4, 3, 2]);
@@ -1261,16 +1342,16 @@ export function isValidCnpjOrCpf(value: string): boolean {
   }
   if (!/^[A-Z0-9]{12}\d{2}$/.test(document) || /^(.)\1+$/.test(document)) return false;
   const checkDigit = (base: string, weights: number[]) => {
-    const remainder = [...base].reduce(
-      (sum, char, index) => sum + (char.charCodeAt(0) - 48) * weights[index],
-      0,
-    ) % 11;
+    const remainder =
+      [...base].reduce((sum, char, index) => sum + (char.charCodeAt(0) - 48) * weights[index], 0) %
+      11;
     return remainder < 2 ? 0 : 11 - remainder;
   };
   const first = checkDigit(document.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  const second = checkDigit(`${document.slice(0, 12)}${first}`, [
-    6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2,
-  ]);
+  const second = checkDigit(
+    `${document.slice(0, 12)}${first}`,
+    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+  );
   return document.endsWith(`${first}${second}`);
 }
 

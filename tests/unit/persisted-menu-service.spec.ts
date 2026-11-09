@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isValidCnpjOrCpf,
   PersistedMenuService,
@@ -33,7 +33,7 @@ class FakeStore {
   async saveConversationAndMarkInbound(conversation: StoredConversation) {
     this.conversation = { ...conversation };
   }
-  async markInboundProcessed() { }
+  async markInboundProcessed() {}
   async saveOutbound(_conversationId: string, text: string) {
     this.outbound.push(text);
   }
@@ -54,6 +54,34 @@ class FakeStore {
 }
 
 describe('persisted menu service', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    ['before opening on a weekday', '2026-11-09T09:30:00.000Z'],
+    ['at closing time on a weekday', '2026-11-09T21:00:00.000Z'],
+    ['during the weekend on-call period', '2026-11-14T15:00:00.000Z'],
+  ])('warns about on-call service %s without blocking the intake', async (_scenario, now) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(now));
+    const store = new FakeStore();
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    const result = await service.process([
+      { id: `wamid-hours-${now}`, from: '+5511999999999', text: 'Olá' },
+    ]);
+
+    expect(result.responses[0].text).toContain('fora do horário regular');
+    expect(result.responses[0].text).toContain(
+      'sábados e domingos, atendemos somente chamados de plantão',
+    );
+    expect(result.responses[0].text).toContain('Podemos continuar?');
+
+    const followUp = await service.process([
+      { id: `wamid-hours-follow-up-${now}`, from: '+5511999999999', text: 'continuar' },
+    ]);
+    expect(followUp.responses[0].text).not.toContain('fora do horário regular');
+  });
+
   it('persists a conversation transition and ignores a repeated Meta message', async () => {
     const store = new FakeStore();
     const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
@@ -176,9 +204,7 @@ describe('persisted menu service', () => {
 
   it('recognizes natural-language service choices as well as all ten numbered options', async () => {
     expect(commercialServiceByOption('10')).toBe('Outro serviço');
-    expect(commercialServiceByOption('Quero limpeza de dutos, por favor')).toBe(
-      'Limpeza de dutos',
-    );
+    expect(commercialServiceByOption('Quero limpeza de dutos, por favor')).toBe('Limpeza de dutos');
 
     const store = new FakeStore();
     store.conversation = { ...store.conversation, state: 'collecting', route: 'commercial' };
@@ -275,7 +301,9 @@ describe('persisted menu service', () => {
     };
     const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
 
-    await service.process([{ id: 'wamid-unknown-history', from: '+5511999999999', text: 'não sei' }]);
+    await service.process([
+      { id: 'wamid-unknown-history', from: '+5511999999999', text: 'não sei' },
+    ]);
 
     expect(store.conversation.route).toBe('technical');
     expect(store.conversation.context.service).toBe('Assistência avulsa');
@@ -316,9 +344,15 @@ describe('persisted menu service', () => {
       state: 'collecting',
       route: 'technical',
       context: {
-        contactName: 'Ana', company: 'Clínica Alfa', location: 'Unidade Norte',
-        contractReference: 'não sei', equipment: 'Chiller', manufacturerModel: 'Modelo X',
-        assetIdentifier: 'A-1', symptom: 'Falha', alarm: 'não informado',
+        contactName: 'Ana',
+        company: 'Clínica Alfa',
+        location: 'Unidade Norte',
+        contractReference: 'não sei',
+        equipment: 'Chiller',
+        manufacturerModel: 'Modelo X',
+        assetIdentifier: 'A-1',
+        symptom: 'Falha',
+        alarm: 'não informado',
       },
     };
     const titles: string[] = [];
@@ -391,16 +425,29 @@ describe('persisted menu service', () => {
       state: 'review',
       route: 'technical',
       context: {
-        contactName: 'Ana', company: 'Hospital Alfa', location: 'UTI',
-        contractReference: '123', equipment: 'Chiller', manufacturerModel: 'Modelo X',
-        assetIdentifier: 'A-1', symptom: 'Falha', alarm: 'E3', startedFrequency: 'Hoje',
-        operationalImpact: 'Totalmente parado', contingency: 'não', reportedRisk: 'não',
+        contactName: 'Ana',
+        company: 'Hospital Alfa',
+        location: 'UTI',
+        contractReference: '123',
+        equipment: 'Chiller',
+        manufacturerModel: 'Modelo X',
+        assetIdentifier: 'A-1',
+        symptom: 'Falha',
+        alarm: 'E3',
+        startedFrequency: 'Hoje',
+        operationalImpact: 'Totalmente parado',
+        contingency: 'não',
+        reportedRisk: 'não',
       },
     };
     const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
 
     const result = await service.process([
-      { id: 'wamid-technical-review-correction', from: '+5511999999999', text: 'o alarme correto é E4' },
+      {
+        id: 'wamid-technical-review-correction',
+        from: '+5511999999999',
+        text: 'o alarme correto é E4',
+      },
     ]);
 
     expect(store.conversation.state).toBe('collecting');
@@ -415,9 +462,16 @@ describe('persisted menu service', () => {
       state: 'collecting',
       route: 'technical',
       context: {
-        contactName: 'Ana', company: 'Hospital Alfa', location: 'UTI',
-        contractReference: '123', equipment: 'Chiller', manufacturerModel: 'Modelo X',
-        assetIdentifier: 'A-1', symptom: 'Falha', alarm: 'não informado', startedFrequency: 'Hoje',
+        contactName: 'Ana',
+        company: 'Hospital Alfa',
+        location: 'UTI',
+        contractReference: '123',
+        equipment: 'Chiller',
+        manufacturerModel: 'Modelo X',
+        assetIdentifier: 'A-1',
+        symptom: 'Falha',
+        alarm: 'não informado',
+        startedFrequency: 'Hoje',
       },
     };
     const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);

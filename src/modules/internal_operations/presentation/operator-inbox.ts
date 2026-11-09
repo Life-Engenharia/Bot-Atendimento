@@ -898,6 +898,14 @@ let items = [],
   loadTimer = null,
   queueLoadInProgress = false;
 const roles = ["admin", "coordination", "commercial", "technical", "on_call"];
+const roleLabel = (role) => ({
+  admin: "Administrador",
+  coordination: "Coordenação",
+  commercial: "Comercial",
+  technical: "Atendimento técnico",
+  on_call: "Plantão",
+  viewer: "Visualização",
+}[role] || role);
 const auth = () => ({
   Authorization: "Bearer " + sessionStorage.getItem("operatorToken"),
 });
@@ -937,7 +945,7 @@ const conversationStateLabel = (state, route) =>
     route: "Escolhendo atendimento",
     collecting: "Triagem pelo bot",
     review: "Aguardando confirmação",
-    queued: route === "technical" ? "Em análise técnica" : route === "commercial" ? "Comercial acionado" : "Aguardando equipe",
+    queued: route === "technical" ? "Em atendimento técnico" : route === "commercial" ? "Comercial acionado" : "Aguardando equipe",
     human: "Atendimento humano",
     closed: "Concluído",
   })[state] || "Atendimento";
@@ -998,13 +1006,34 @@ function notifyIncoming(conversation, message) {
     });
   }
 }
+function notifyWaitingAssignment(conversation) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const critical = ["P1", "P2"].includes(conversation.suggestedPriority);
+  const notification = new Notification(
+    (critical ? "Chamado prioritário" : "Novo atendimento") + " aguardando responsável · Central Life",
+    {
+      body: (conversation.contactName || conversation.contactPhone) + " · " + conversationStateLabel(conversation.state, conversation.route),
+      tag: "life-awaiting-" + conversation.id,
+      requireInteraction: critical,
+    },
+  );
+  notification.onclick = () => {
+    window.focus();
+    open(conversation.id).catch(() => {});
+    notification.close();
+  };
+}
 async function checkForIncoming(nextItems) {
+  const newlyWaiting = nextItems.filter((conversation) =>
+    !knownUpdates.has(conversation.id) && !conversation.assignedOperator && action(conversation),
+  );
   const changed = nextItems.filter((conversation) =>
     knownUpdates.has(conversation.id) && knownUpdates.get(conversation.id) !== conversation.updatedAt,
   );
   const previousCheck = lastInboxCheckAt;
   lastInboxCheckAt = Date.now();
   knownUpdates = new Map(nextItems.map((conversation) => [conversation.id, conversation.updatedAt]));
+  newlyWaiting.forEach(notifyWaitingAssignment);
   if (!alertsEnabled || !changed.length) return;
   const details = await Promise.all(
     changed.map((conversation) => api("/api/operator/conversations/" + conversation.id).catch(() => null)),
@@ -1474,7 +1503,7 @@ document.getElementById("loginForm").onsubmit = async (e) => {
     localStorage.setItem("lifeLastAccount", s.user.email);
     document.getElementById("accountName").textContent = s.user.name;
     document.getElementById("accountRole").textContent =
-      s.user.role + " · disponível para atender";
+      roleLabel(s.user.role) + " · disponível para atender";
     document
       .getElementById("commercialNav")
       .classList.toggle("hidden", !roles.includes(s.user.role));

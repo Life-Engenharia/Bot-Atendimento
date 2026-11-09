@@ -46,6 +46,7 @@ export type StoredConversation = {
     contingency?: string;
     reportedRisk?: string;
     greetingImageSent?: boolean;
+    businessHoursNoticeSent?: boolean;
   };
 };
 
@@ -100,7 +101,11 @@ export type OperationalAlert = {
 };
 export type RetentionResult = { conversationsAnonymized: number; attachmentsDeleted: number };
 
-type Contact = { id: string; document_type?: 'cpf' | 'cnpj' | null; document_number?: string | null };
+type Contact = {
+  id: string;
+  document_type?: 'cpf' | 'cnpj' | null;
+  document_number?: string | null;
+};
 type StoredMessage = { id: string; conversation_id?: string | null; processed_at?: string | null };
 export type WebhookJob = { id: string; message: IncomingMessage; attempts: number };
 
@@ -165,7 +170,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   constructor(
     private readonly url: string,
     private readonly serviceKey: string,
-  ) { }
+  ) {}
 
   async acceptInbound(
     message: IncomingMessage,
@@ -212,7 +217,9 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       message.interactiveId === 'satisfaction_partial';
     let conversation: StoredConversation;
     if (inserted[0].conversation_id) {
-      const recovered = await this.request<Array<StoredConversation & { assigned_operator?: string | null }>>(
+      const recovered = await this.request<
+        Array<StoredConversation & { assigned_operator?: string | null }>
+      >(
         `conversations?id=eq.${encodeURIComponent(inserted[0].conversation_id)}&select=id,state,route,context,assigned_operator`,
         {},
         [200],
@@ -238,7 +245,8 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     }
     const surveyResponse =
       conversation.state === 'closed' &&
-        (message.interactiveId === 'satisfaction_resolved' || numericSurveyCandidate && normalizedReply === '1')
+      (message.interactiveId === 'satisfaction_resolved' ||
+        (numericSurveyCandidate && normalizedReply === '1'))
         ? 'resolved'
         : undefined;
     await this.request(
@@ -423,7 +431,9 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         body: JSON.stringify({
           status: permanentlyFailed ? 'failed' : 'queued',
           last_error: message.slice(0, 1000),
-          available_at: new Date(Date.now() + Math.min(5 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1))).toISOString(),
+          available_at: new Date(
+            Date.now() + Math.min(5 * 60_000, 5_000 * 2 ** Math.max(0, attempts - 1)),
+          ).toISOString(),
         }),
       },
       [204],
@@ -437,10 +447,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   }
 
   async listFailedWebhookJobs(): Promise<
-    Array<{ id: string; metaMessageId: string; attempts: number; lastError: string | null; createdAt: string }>
+    Array<{
+      id: string;
+      metaMessageId: string;
+      attempts: number;
+      lastError: string | null;
+      createdAt: string;
+    }>
   > {
     const rows = await this.request<
-      Array<{ id: string; meta_message_id: string; attempts: number; last_error: string | null; created_at: string }>
+      Array<{
+        id: string;
+        meta_message_id: string;
+        attempts: number;
+        last_error: string | null;
+        created_at: string;
+      }>
     >(
       'webhook_jobs?status=eq.failed&select=id,meta_message_id,attempts,last_error,created_at&order=created_at.desc&limit=100',
       {},
@@ -461,7 +483,12 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({ status: 'queued', attempts: 0, available_at: new Date().toISOString(), last_error: null }),
+        body: JSON.stringify({
+          status: 'queued',
+          attempts: 0,
+          available_at: new Date().toISOString(),
+          last_error: null,
+        }),
       },
       [200],
     );
@@ -680,12 +707,12 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         (item) =>
           item.state !== 'closed' &&
           (now - new Date(item.updated_at).getTime()) / 60_000 >
-          slaMinutes(item.protocols?.suggested_priority),
+            slaMinutes(item.protocols?.suggested_priority),
       ).length,
       averageResolutionMinutes: resolutionMinutes.length
         ? Math.round(
-          resolutionMinutes.reduce((total, value) => total + value, 0) / resolutionMinutes.length,
-        )
+            resolutionMinutes.reduce((total, value) => total + value, 0) / resolutionMinutes.length,
+          )
         : null,
       members: users.map(({ passwordHash: _passwordHash, ...user }) => user),
       recentActivity: audit.map((event) => ({
@@ -929,19 +956,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const technicalDetails =
       context.service === 'Assistência avulsa' && context.equipment
         ? [
-          'Dados técnicos já informados:',
-          `Equipamento: ${context.equipment}`,
-          `Fabricante/modelo: ${context.manufacturerModel ?? 'não informado'}`,
-          `Patrimônio/série: ${context.assetIdentifier ?? 'não informado'}`,
-          `Sintoma: ${context.symptom ?? 'não informado'}`,
-          `Alarme: ${context.alarm ?? 'não informado'}`,
-          `Início/frequência: ${context.startedFrequency ?? 'não informado'}`,
-          `Impacto: ${context.operationalImpact ?? 'não informado'}`,
-          `Contingência: ${context.contingency ?? 'não informado'}`,
-          `Risco: ${context.reportedRisk ?? 'não informado'}`,
-        ].join(' · ')
+            'Dados técnicos já informados:',
+            `Equipamento: ${context.equipment}`,
+            `Fabricante/modelo: ${context.manufacturerModel ?? 'não informado'}`,
+            `Patrimônio/série: ${context.assetIdentifier ?? 'não informado'}`,
+            `Sintoma: ${context.symptom ?? 'não informado'}`,
+            `Alarme: ${context.alarm ?? 'não informado'}`,
+            `Início/frequência: ${context.startedFrequency ?? 'não informado'}`,
+            `Impacto: ${context.operationalImpact ?? 'não informado'}`,
+            `Contingência: ${context.contingency ?? 'não informado'}`,
+            `Risco: ${context.reportedRisk ?? 'não informado'}`,
+          ].join(' · ')
         : '';
-    const requestNeed = [context.need, technicalDetails].filter(Boolean).join('\n\n').slice(0, 1000);
+    const requestNeed = [context.need, technicalDetails]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 1000);
     const { id: protocolId, reference } = await this.getOrCreateProtocol(
       'commercial',
       sourceMessageId,
@@ -998,8 +1028,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
           body: JSON.stringify({
             name: context.contactName ?? null,
             company: context.company === 'pessoa física' ? null : (context.company ?? null),
-            document_type: context.cnpj ? (context.cnpj.replace(/\\D/g, '').length === 11 ? 'cpf' : 'cnpj') : null,
-            document_number: context.cnpj ? context.cnpj.replace(/[^0-9A-Z]/gi, '').toUpperCase() : null,
+            document_type: context.cnpj
+              ? context.cnpj.replace(/\\D/g, '').length === 11
+                ? 'cpf'
+                : 'cnpj'
+              : null,
+            document_number: context.cnpj
+              ? context.cnpj.replace(/[^0-9A-Z]/gi, '').toUpperCase()
+              : null,
             email: context.email === 'não informado' ? null : (context.email ?? null),
             consented_at: new Date().toISOString(),
           }),
@@ -1419,14 +1455,14 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     const row = users[0];
     return row
       ? {
-        id: row.id,
-        name: row.name,
-        email: row.email,
-        passwordHash: row.password_hash,
-        role: row.role,
-        area: row.area,
-        active: row.active,
-      }
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          passwordHash: row.password_hash,
+          role: row.role,
+          area: row.area,
+          active: row.active,
+        }
       : undefined;
   }
 
@@ -1657,7 +1693,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   > {
     const rows = await this.request<
       Array<{ id: string; name: string; role: AppRole; area: AppUser['area'] }>
-    >('app_users?active=eq.true&role=neq.viewer&select=id,name,role,area&order=name.asc', {}, [200]);
+    >(
+      'app_users?active=eq.true&role=neq.viewer&select=id,name,role,area&order=name.asc',
+      {},
+      [200],
+    );
     return rows;
   }
 
@@ -1771,7 +1811,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   }
 
   /** Marca a mensagem original como reenviada para ela não ser reenviada duas vezes. */
-  async markMessageRetried(messageId: string, actor: string, conversationId: string): Promise<void> {
+  async markMessageRetried(
+    messageId: string,
+    actor: string,
+    conversationId: string,
+  ): Promise<void> {
     await this.request(
       `messages?id=eq.${encodeURIComponent(messageId)}&direction=eq.outbound`,
       { method: 'PATCH', body: JSON.stringify({ delivery_status: 'retried' }) },
@@ -2151,17 +2195,21 @@ function isTransientNetworkError(error: unknown): boolean {
   if (isTimeout(error)) return true;
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
-  return message.includes('fetch failed')
-    || message.includes('connect timeout')
-    || message.includes('network error')
-    || message.includes('econnreset')
-    || message.includes('eai_again');
+  return (
+    message.includes('fetch failed') ||
+    message.includes('connect timeout') ||
+    message.includes('network error') ||
+    message.includes('econnreset') ||
+    message.includes('eai_again')
+  );
 }
 
 function isCacheableRead(path: string): boolean {
-  return path.startsWith('operational_settings?')
-    || path.startsWith('app_users?')
-    || path.startsWith('contacts?');
+  return (
+    path.startsWith('operational_settings?') ||
+    path.startsWith('app_users?') ||
+    path.startsWith('contacts?')
+  );
 }
 
 function safeFileName(value: string): string {

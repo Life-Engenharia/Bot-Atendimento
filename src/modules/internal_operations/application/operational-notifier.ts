@@ -47,7 +47,7 @@ export class OperationalNotifier {
       `Sintoma: ${conversation.context.symptom ?? 'não informado'}`,
       `Impacto: ${conversation.context.operationalImpact ?? 'não informado'}`,
       `Risco informado: ${conversation.context.reportedRisk ?? 'não informado'}`,
-    ]);
+    ], priority);
   }
 
   private async send(
@@ -55,10 +55,11 @@ export class OperationalNotifier {
     reference: string,
     conversation: StoredConversation,
     lines: string[],
+    priority?: string,
   ): Promise<void> {
     const destination = this.destinations[area];
-    const emailDestination = this.emailDestinations[area];
-    if ((!destination || !this.sender) && (!emailDestination || !this.emailSender)) return;
+    const emailRecipients = await this.emailRecipients(area, priority);
+    if ((!destination || !this.sender) && (!emailRecipients.length || !this.emailSender)) return;
     const title = area === 'commercial' ? '*NOVA POSSÍVEL PROPOSTA*' : '*NOVO CHAMADO TÉCNICO*';
     const action = area === 'commercial'
       ? [
@@ -76,10 +77,11 @@ export class OperationalNotifier {
     if (destination && this.sender) {
       deliveries.push(this.sendWhatsApp(area, destination, reference, conversation, text));
     }
-    if (emailDestination && this.emailSender) {
+    if (emailRecipients.length && this.emailSender) {
       const subjectPrefix = area === 'commercial' ? 'Nova oportunidade' : 'Novo chamado técnico';
       const emailText = [
         title.replaceAll('*', ''),
+        'Este atendimento está aguardando ser assumido na Central Life.',
         '',
         'Protocolo:',
         reference,
@@ -87,13 +89,29 @@ export class OperationalNotifier {
         ...lines,
         ...action.map((line) => line.replaceAll('*', '')),
       ].join('\n');
-      deliveries.push(this.sendEmail(area, emailDestination, {
-        to: emailDestination,
+      deliveries.push(...emailRecipients.map((to) => this.sendEmail(area, to, {
+        to,
         subject: `[Life Engenharia] ${subjectPrefix} ${reference}`,
         text: emailText,
-      }, reference, conversation));
+      }, reference, conversation)));
     }
     await Promise.all(deliveries);
+  }
+
+  private async emailRecipients(
+    area: 'commercial' | 'technical',
+    priority?: string,
+  ): Promise<string[]> {
+    const configured = this.emailDestinations[area];
+    try {
+      const users = await this.store.listUsers();
+      const registered = users
+        .filter((user) => user.active && canReceiveQueueEmail(user.role, user.area, area, priority))
+        .map((user) => user.email);
+      return [...new Set([configured, ...registered].filter((email): email is string => Boolean(email)))];
+    } catch {
+      return configured ? [configured] : [];
+    }
   }
 
   private async sendWhatsApp(
@@ -159,6 +177,20 @@ export class OperationalNotifier {
       });
     }
   }
+}
+
+function canReceiveQueueEmail(
+  role: string,
+  userArea: string,
+  destinationArea: 'commercial' | 'technical',
+  priority?: string,
+): boolean {
+  if (role === 'admin' || role === 'coordination') return true;
+  if (destinationArea === 'commercial') return userArea === 'commercial';
+  const isOnCall = priority === 'P1' || priority === 'P2';
+  return isOnCall
+    ? userArea === 'on_call' || role === 'on_call'
+    : userArea === 'technical' || role === 'technical';
 }
 
 function toWhatsAppLink(value?: string): string {

@@ -84,4 +84,28 @@ describe('operational notifier', () => {
       text: expect.stringContaining('Serviço: PMOC'),
     }));
   });
+
+  it('notifies active on-call users instead of every technician for P1 and P2 calls', async () => {
+    const { store } = createStore();
+    (store as unknown as { listUsers: () => Promise<unknown[]> }).listUsers = async () => [
+      { email: 'tecnico@life.eng.br', active: true, role: 'technical', area: 'technical' },
+      { email: 'plantao@life.eng.br', active: true, role: 'on_call', area: 'on_call' },
+      { email: 'comercial@life.eng.br', active: true, role: 'commercial', area: 'commercial' },
+      { email: 'inativo@life.eng.br', active: false, role: 'technical', area: 'technical' },
+    ];
+    const email = { send: vi.fn().mockResolvedValue(undefined) };
+    const notifier = new OperationalNotifier(store, undefined, {}, {}, email, {
+      technical: 'tecnica@life.eng.br',
+    });
+
+    await notifier.technical('LFE-TECH-0002', 'P2', conversation);
+
+    expect(email.send).toHaveBeenCalledTimes(2);
+    expect(email.send).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'plantao@life.eng.br',
+      text: expect.stringContaining('aguardando ser assumido'),
+    }));
+    expect(email.send).not.toHaveBeenCalledWith(expect.objectContaining({ to: 'tecnico@life.eng.br' }));
+    expect(email.send).not.toHaveBeenCalledWith(expect.objectContaining({ to: 'comercial@life.eng.br' }));
+  });
 });
