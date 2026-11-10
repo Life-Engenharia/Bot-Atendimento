@@ -383,6 +383,9 @@ export default function OperatorPage() {
     const all = COLUMNS.map((c) => ({ id: c.id, rows: by[c.id] }));
     return nav === 'closed' ? all.filter((c) => c.id === 'closed') : all;
   }, [visible, nav]);
+  /* no celular, mostra a coluna escolhida; se ela estiver vazia, cai na primeira com atendimentos */
+  const activeMobileColumn: BoardColumn =
+    columnsData.find((c) => c.id === mobileColumn && c.rows.length)?.id ?? columnsData.find((c) => c.rows.length)?.id ?? mobileColumn;
   const tabCounts: Record<TabKey, number> = {
     action: baseItems.filter((c) => matchesTab(c, 'action')).length,
     mine: baseItems.filter((c) => matchesTab(c, 'mine')).length,
@@ -1015,7 +1018,7 @@ export default function OperatorPage() {
               dropTarget={dropTarget}
               movingId={movingId}
               mobile={isMobile}
-              mobileColumn={mobileColumn}
+              mobileColumn={activeMobileColumn}
               group={group}
               more={more}
               filtering={anyFilter}
