@@ -1,6 +1,0 @@
-/*
- * Mantido apenas porque app/layout.tsx importa este arquivo.
- * Os estilos do painel agora ficam todos em globals.css, no bloco
- * "Painel do operador". Pode remover este arquivo junto com o import
- * em layout.tsx quando quiser.
- */
