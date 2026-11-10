@@ -46,7 +46,7 @@ export function Board(props: BoardProps) {
   const { columns, mobile, mobileColumn } = props;
   const gridCols = mobile
     ? undefined
-    : columns.map((c) => (c.rows.length ? 'minmax(230px, 1fr)' : 'minmax(150px, 0.45fr)')).join(' ');
+    : columns.map((c) => (c.rows.length ? 'minmax(230px, 1fr)' : 'minmax(200px, 0.6fr)')).join(' ');
   return (
     <>
       <nav className="colnav" role="group" aria-label="Coluna do quadro">

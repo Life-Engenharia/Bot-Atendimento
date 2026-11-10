@@ -368,6 +368,10 @@ dialog .fld input[aria-invalid="true"]{border-color:var(--crit)}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .col header i{width:auto;height:auto;background:none;display:inline-flex;align-items:center;margin-right:7px;color:var(--c)}
 .col header i .ic{width:15px;height:15px;margin:0}
-.col header>span:first-child{min-width:0;overflow-wrap:anywhere}
+.col header>span:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .r1{flex-wrap:wrap;min-width:0}
+.card .r1>span:last-child{flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.card .r3{min-width:0}
+.card .tags{min-width:0}
 .col header>span:first-child{display:inline-flex;align-items:center;gap:0}
 .me button{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
