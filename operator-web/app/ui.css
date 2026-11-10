@@ -366,6 +366,8 @@ dialog .fld input[aria-invalid="true"]{border-color:var(--crit)}
 .card .mini.none{color:var(--muted)}
 .ws .ph-empty .ic.em{display:block;margin:0 auto 6px;width:22px;height:22px;opacity:.55}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.col header i{margin-right:6px}
+.col header i{width:auto;height:auto;background:none;display:inline-flex;align-items:center;margin-right:7px;color:var(--c)}
+.col header i .ic{width:15px;height:15px;margin:0}
+.col header>span:first-child{min-width:0;overflow-wrap:anywhere}
 .col header>span:first-child{display:inline-flex;align-items:center;gap:0}
 .me button{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
