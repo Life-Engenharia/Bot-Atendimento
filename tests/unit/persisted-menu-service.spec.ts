@@ -15,6 +15,7 @@ class FakeStore {
   readonly outbound: string[] = [];
   readonly handoffs: string[] = [];
   readonly protocols: string[] = [];
+  readonly contactDocuments: Array<{ phone: string; document: string }> = [];
   conversation: StoredConversation = {
     id: 'conversation-1',
     state: 'consent',
@@ -50,6 +51,9 @@ class FakeStore {
   async createTechnicalProtocol(_conversation: StoredConversation) {
     this.protocols.push('LFE-TEST-TECH-0001');
     return 'LFE-TEST-TECH-0001';
+  }
+  async saveContactDocument(phone: string, document: string) {
+    this.contactDocuments.push({ phone, document });
   }
 }
 
@@ -649,6 +653,27 @@ describe('persisted menu service', () => {
     expect(isValidCnpjOrCpf('11.222.333/0001-81')).toBe(true);
     expect(isValidCnpjOrCpf('11.222.333/0001-00')).toBe(false);
     expect(isValidCnpjOrCpf('00.000.000/E08G-12')).toBe(true);
+  });
+
+  it('stores a validated CPF in the local contact before commercial confirmation', async () => {
+    const store = new FakeStore();
+    store.conversation = {
+      ...store.conversation,
+      state: 'collecting',
+      route: 'commercial',
+      context: { service: 'PMOC', location: 'Aracaju', contactName: 'João' },
+    };
+    const service = new PersistedMenuService(store as unknown as SupabaseConversationStore);
+
+    const result = await service.process([
+      { id: 'wamid-commercial-cpf', from: '+5579991162353', text: '529.982.247-25' },
+    ]);
+
+    expect(result.responses[0].text).toContain('nome da empresa');
+    expect(store.contactDocuments).toEqual([
+      { phone: '+5579991162353', document: '529.982.247-25' },
+    ]);
+    expect(store.conversation.context.cnpj).toBe('529.982.247-25');
   });
 
   it('responds warmly after a queued customer thanks the team', async () => {

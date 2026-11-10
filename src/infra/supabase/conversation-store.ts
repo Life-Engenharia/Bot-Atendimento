@@ -1995,6 +1995,26 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     };
   }
 
+  /**
+   * Mantém o documento validado no cadastro local desde a triagem. A criação
+   * no CRM externo continua dependendo da confirmação final do cliente.
+   */
+  async saveContactDocument(phone: string, documentValue: string): Promise<void> {
+    const document = documentValue.replace(/[^0-9A-Z]/gi, '').toUpperCase();
+    if (!document) return;
+    await this.request(
+      `contacts?phone_e164=eq.${encodeURIComponent(phone)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          document_type: document.length === 11 ? 'cpf' : 'cnpj',
+          document_number: document,
+        }),
+      },
+      [204],
+    );
+  }
+
   private async upsertContact(phone: string): Promise<Contact> {
     const contacts = await this.request<Contact[]>(
       'contacts?on_conflict=phone_e164',

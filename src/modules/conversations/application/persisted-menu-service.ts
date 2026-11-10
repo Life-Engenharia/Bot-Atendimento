@@ -686,6 +686,12 @@ export class PersistedMenuService {
                   : nextField === 'cnpj' && isOptionalDocumentAnswer(value)
                     ? 'pendente de confirmação'
                     : value;
+              if (nextField === 'cnpj' && !isOptionalDocumentAnswer(value)) {
+                // O documento já foi validado e o cliente consentiu com o
+                // registro. Salve-o no contato local agora, mesmo que a
+                // triagem seja abandonada antes da confirmação final.
+                await this.store.saveContactDocument(message.from, value);
+              }
               if (
                 nextField === 'cnpj' &&
                 !isOptionalDocumentAnswer(value) &&
