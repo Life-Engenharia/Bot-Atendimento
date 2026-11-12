@@ -1,3 +1,5 @@
+param([string]$OnlyFile)
+
 Add-Type -AssemblyName System.Drawing
 
 $source = 'C:\Users\Setor Desenvolviment\Downloads\Assinatura Corporativa Life Engenharia (2).png'
@@ -10,12 +12,12 @@ $cedilla = [char]0x00E7
 $tildeA = [char]0x00E3
 $tildeO = [char]0x00F5
 $contacts = @(
-  @{ File = 'compras'; Sector = 'Compras'; Phone = '+55 79 99646-7019'; Email = 'compras@life.eng.br' },
+  @{ File = 'compras'; Sector = 'Compras'; Phone = '+55 79 3246-1881  |  +55 79 99646-7019'; Email = 'compras@life.eng.br' },
   @{ File = 'licitacoes'; Sector = ('Licita' + $cedilla + $tildeO + 'es'); Phone = '+55 79 99673-0912'; Email = 'licitacao@life.eng.br' },
   @{ File = 'financeiro'; Sector = 'Financeiro'; Phone = '+55 79 99654-9021'; Email = 'financeiro@life.eng.br' },
   @{ File = 'assistencia-tecnica'; Sector = ('Assist' + $circumflexE + 'ncia T' + $acuteE + 'cnica'); Phone = '+55 79 99890-1667'; Email = 'assistencia@life.eng.br' },
   @{ File = 'recepcao'; Sector = ('Recep' + $cedilla + $tildeA + 'o'); Phone = '+55 79 98122-4074'; Email = 'recepcao@life.eng.br' },
-  @{ File = 'almoxarifado'; Sector = 'Almoxarifado'; Phone = '+55 79 99842-7522'; Email = 'controleinterno@life.eng.br' },
+  @{ File = 'almoxarifado'; Sector = 'Estoque'; Phone = '+55 79 99842-7522'; Email = 'controleinterno@life.eng.br' },
   @{ File = 'farmaceutico'; Sector = ('Farmac' + $circumflexE + 'utico'); Phone = '+55 79 9860-4471'; Email = 'anderson@life.eng.br' },
   @{ File = 'vendas'; Sector = 'Vendas'; Phone = '+55 79 99925-0532'; Email = 'vendas@life.eng.br' },
   @{ File = 'engenharia-de-software'; Sector = 'Engenharia de Software'; Phone = '+55 79 99116-2353'; Email = 'informatica@life.eng.br' },
@@ -46,6 +48,7 @@ $original = [System.Drawing.Image]::FromFile($source)
 $jpegCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
 
 foreach ($contact in $contacts) {
+  if ($OnlyFile -and $contact.File -ne $OnlyFile) { continue }
   # Keep the template at its native resolution so the logo and badges stay crisp.
   $canvas = New-Object System.Drawing.Bitmap 2172, 724
   $graphics = [System.Drawing.Graphics]::FromImage($canvas)
@@ -74,7 +77,7 @@ foreach ($contact in $contacts) {
   $graphics.DrawString('life.eng.br', $siteFont, $inkBrush, 1190, 507)
 
   $encoderParameters = New-Object System.Drawing.Imaging.EncoderParameters 1
-  $encoderParameters.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 92L
+  $encoderParameters.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 96L
   $output = Join-Path $destination ("assinatura-uol-{0}.jpg" -f $contact.File)
   $canvas.Save($output, $jpegCodec, $encoderParameters)
 

@@ -9,11 +9,12 @@ New-Item -ItemType Directory -Force -Path $destination | Out-Null
 $acuteI = [char]0x00ED
 $contacts = @(
   @{ File = 'comercial'; Sector = 'Comercial'; Phone = '+55 79 99925-0532'; Email = 'vendas@life.eng.br'; HasPhone = $true },
-  @{ File = 'renilson-administrador'; Sector = 'Renilson | Administrador'; Phone = ''; Email = 'administracao@life.eng.br'; HasPhone = $false },
+  @{ File = 'renilson-administrador'; Name = 'Renilson Santana'; Title = 'Administrador'; Subtitle = ''; Phone = '+55 79 3246-1881  |  +55 79 9992-7128'; Email = 'administracao@life.eng.br'; HasPhone = $true },
   @{ File = 'juridico'; Sector = ('Jur' + $acuteI + 'dico'); Phone = ''; Email = 'juridico@life.eng.br'; HasPhone = $false },
   @{ File = 'contato'; Sector = 'Contato'; Phone = ''; Email = 'contato@life.eng.br'; HasPhone = $false },
   @{ File = 'vendas'; Name = 'Gilmar Nunes'; Title = 'Vendas'; Subtitle = ''; Phone = '+55 79 99925-0532'; Email = 'vendas@life.eng.br'; HasPhone = $true },
   @{ File = 'moises-freire'; Sector = ('Mois' + [char]0x00E9 + 's Freire de Jesus'); Title = 'Engenheiro Mecânico'; Registration = 'CREA-SE nº 272352782-4'; Phone = '+55 79 3214-1460'; Email = 'refrigeracao@life.eng.br'; HasPhone = $true },
+  @{ File = 'jonatan-barboza-nunes'; Name = 'JONATAN BARBOZA NUNES'; Detail1 = 'Engenheiro de Produ' + [char]0x00E7 + [char]0x00E3 + 'o Mec' + [char]0x00E2 + 'nico'; Detail2 = 'Engenheiro de Sa' + [char]0x00FA + 'de e Seguran' + [char]0x00E7 + 'a do Trabalho'; Detail3 = 'CREA-SE n' + [char]0x00BA + ' 271500966-6'; Phone = '+55 79 9675-0700  |  +55 79 3246-1881'; Email = 'engenharia@life.eng.br'; HasPhone = $true },
   @{ File = 'engenharia-de-software'; Name = ('Jo' + [char]0x00E3 + 'o Victor Vasconcelos'); Title = 'Engenheiro de Software'; Subtitle = ('Especialista em Ciberseguran' + [char]0x00E7 + [char]0x00E3 + 'a'); Phone = '+55 79 99116-2353'; Email = 'informatica@life.eng.br'; HasPhone = $true }
 )
 
@@ -82,7 +83,14 @@ foreach ($contact in $contacts) {
   $ink = [System.Drawing.Color]::FromArgb(18, 54, 103)
   $inkBrush = New-Object System.Drawing.SolidBrush $ink
 
-  if ($contact.Name) {
+  if ($contact.Detail1) {
+    $sectorFont = New-Object System.Drawing.Font 'Arial', 37, ([System.Drawing.FontStyle]::Bold)
+    $detailFont = New-Object System.Drawing.Font 'Arial', 23, ([System.Drawing.FontStyle]::Regular)
+    $graphics.DrawString($sectorText, $sectorFont, $inkBrush, 1075, 76)
+    $graphics.DrawString($contact.Detail1, $detailFont, $inkBrush, 1075, 132)
+    $graphics.DrawString($contact.Detail2, $detailFont, $inkBrush, 1075, 166)
+    $graphics.DrawString($contact.Detail3, $detailFont, $inkBrush, 1075, 200)
+  } elseif ($contact.Name) {
     $sectorFont = New-Object System.Drawing.Font 'Arial', 40, ([System.Drawing.FontStyle]::Bold)
     $graphics.DrawString($sectorText, $sectorFont, $inkBrush, 1075, 86)
     $graphics.DrawString($contact.Title, $titleFont, $inkBrush, 1075, 145)
@@ -113,6 +121,7 @@ foreach ($contact in $contacts) {
   $emailFont.Dispose()
   $phoneFont.Dispose()
   $siteFont.Dispose()
+  if ($detailFont) { $detailFont.Dispose() }
   $graphics.Dispose()
   $canvas.Dispose()
 }
