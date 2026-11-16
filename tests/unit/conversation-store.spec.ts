@@ -31,6 +31,7 @@ describe('Supabase conversation processing resilience', () => {
         return json([{ id: 'conversation-1', state: 'collecting', route: 'commercial', context: {} }]);
       if (url.includes('/messages?id=eq.message-row-1')) return empty();
       if (url.includes('/conversations?id=eq.conversation-1')) return empty();
+      if (url.endsWith('/rpc/record_customer_conversation_activity')) return json(null);
       if (url.endsWith('/audit_events')) return empty(201);
       throw new Error(`Unexpected Supabase request: ${url}`);
     });

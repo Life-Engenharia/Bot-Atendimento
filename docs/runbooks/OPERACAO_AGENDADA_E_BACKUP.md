@@ -7,6 +7,18 @@ Depois da publicação no Cloud Run, crie um Cloud Scheduler que faça `POST` em
 proteja o serviço com IAP. O endpoint é idempotente: repetir a chamada não
 duplica alertas ainda abertos.
 
+## Encerramento por inatividade
+
+Crie um Cloud Scheduler para fazer `POST` em `/api/admin/jobs/inactivity` a
+cada 5 minutos, com a mesma autenticação OIDC. Para toda conversa aberta —
+inclusive as que estão na fila humana ou assumidas por um operador — a rotina:
+
+1. envia um aviso após 30 minutos sem mensagem do cliente;
+2. encerra o atendimento após outros 20 minutos sem resposta.
+
+Uma mensagem do cliente reinicia o ciclo. A rotina usa reservas no banco, por
+isso execuções sobrepostas não duplicam o aviso nem o encerramento.
+
 ## Retenção LGPD
 
 A referência inicial é 180 dias para conteúdo de conversas fechadas e 90 dias

@@ -1782,3 +1782,64 @@ async function sendOperationalAlertEmail(
     alerts: alerts.length,
   });
 }
+  app.post('/api/admin/jobs/inactivity', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore || !outboundSender)
+      return reply.code(503).send({ error: 'Banco de dados ou WhatsApp ainda não configurado.' });
+
+    const actions = await supabaseStore.claimDueInactivityActions();
+    let warned = 0;
+    let closed = 0;
+    let failed = 0;
+    for (const action of actions) {
+      if (action.action === 'warn') {
+        const text = 'Olá! Ainda precisa dos serviços da Life Engenharia? Caso não recebamos retorno, este atendimento será encerrado em 20 minutos.';
+        try {
+          const delivery = await outboundSender.sendText(action.phone, text);
+          const completed = await supabaseStore.completeInactivityWarning(
+            action.conversationId,
+            action.claimToken,
+          );
+          if (!completed) continue;
+          await supabaseStore.saveOutbound(action.conversationId, text, {
+            messageId: delivery.messageId,
+            status: 'sent',
+          });
+          await supabaseStore.audit('conversation.inactivity_warning_sent', 'scheduler', {
+            conversationId: action.conversationId,
+          });
+          warned += 1;
+        } catch (error) {
+          failed += 1;
+          await supabaseStore.releaseInactivityWarning(action.conversationId, action.claimToken);
+          app.log.error({ err: error, conversationId: action.conversationId }, 'inactivity_warning_failed');
+        }
+        continue;
+      }
+
+      const wasClosed = await supabaseStore.closeInactiveConversation(
+        action.conversationId,
+        action.claimToken,
+      );
+      if (!wasClosed) continue;
+      closed += 1;
+      const text = 'Como não recebemos seu retorno, encerramos este atendimento por inatividade. Quando precisar, envie uma nova mensagem e teremos prazer em ajudar.';
+      try {
+        const delivery = await outboundSender.sendText(action.phone, text);
+        await supabaseStore.saveOutbound(action.conversationId, text, {
+          messageId: delivery.messageId,
+          status: 'sent',
+        });
+      } catch (error) {
+        failed += 1;
+        app.log.error({ err: error, conversationId: action.conversationId }, 'inactivity_close_notification_failed');
+      }
+      await supabaseStore.audit('conversation.closed_for_inactivity', 'scheduler', {
+        conversationId: action.conversationId,
+      });
+      operatorEvents.emit('inbox');
+    }
+    return { warned, closed, failed };
+  });
+

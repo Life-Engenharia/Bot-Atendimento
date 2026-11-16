@@ -99,6 +99,12 @@ export type OperationalAlert = {
   status: 'open' | 'resolved';
   createdAt: string;
 };
+export type InactivityAction = {
+  action: 'warn' | 'close';
+  conversationId: string;
+  phone: string;
+  claimToken: string;
+};
 export type RetentionResult = { conversationsAnonymized: number; attachmentsDeleted: number };
 
 type Contact = {
@@ -264,6 +270,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         body: JSON.stringify({ updated_at: new Date().toISOString() }),
       },
       [204],
+    );
+    await this.request(
+      'rpc/record_customer_conversation_activity',
+      { method: 'POST', body: JSON.stringify({ p_conversation_id: conversation.id }) },
+      [200, 204],
     );
     await this.audit('webhook.message_received', 'meta', {
       messageId: message.id,
@@ -1335,6 +1346,46 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       });
     }
     return { escalated: rows.length };
+  }
+
+  async claimDueInactivityActions(limit = 50): Promise<InactivityAction[]> {
+    const rows = await this.request<
+      Array<{ action: 'warn' | 'close'; conversation_id: string; phone_e164: string; claim_token: string }>
+    >(
+      'rpc/claim_due_conversation_inactivity_actions',
+      { method: 'POST', body: JSON.stringify({ p_limit: Math.max(1, Math.min(limit, 100)) }) },
+      [200],
+    );
+    return (rows ?? []).map((row) => ({
+      action: row.action,
+      conversationId: row.conversation_id,
+      phone: row.phone_e164,
+      claimToken: row.claim_token,
+    }));
+  }
+
+  async completeInactivityWarning(conversationId: string, claimToken: string): Promise<boolean> {
+    return (await this.request<boolean>(
+      'rpc/complete_conversation_inactivity_warning',
+      { method: 'POST', body: JSON.stringify({ p_conversation_id: conversationId, p_claim_token: claimToken }) },
+      [200],
+    )) ?? false;
+  }
+
+  async releaseInactivityWarning(conversationId: string, claimToken: string): Promise<void> {
+    await this.request(
+      'rpc/release_conversation_inactivity_warning',
+      { method: 'POST', body: JSON.stringify({ p_conversation_id: conversationId, p_claim_token: claimToken }) },
+      [200, 204],
+    );
+  }
+
+  async closeInactiveConversation(conversationId: string, claimToken: string): Promise<boolean> {
+    return (await this.request<boolean>(
+      'rpc/close_inactive_conversation',
+      { method: 'POST', body: JSON.stringify({ p_conversation_id: conversationId, p_claim_token: claimToken }) },
+      [200],
+    )) ?? false;
   }
 
   async runRetention(input: {
