@@ -56,6 +56,8 @@ export function Workspace(p: WorkspaceProps) {
   const last = s.messages?.length ? s.messages[s.messages.length - 1] : null;
   const customerWaiting = !!last && last.direction === 'inbound' && s.state !== 'closed';
   const contextEntries = Object.entries(s.context || {}).filter(([, v]) => v && String(v).trim());
+  const compactContextEntries = contextEntries.filter(([, v]) => String(v).trim().length <= 160);
+  const longContextEntries = contextEntries.filter(([, v]) => String(v).trim().length > 160);
   const isOpen = s.state !== 'closed';
   const due = isOpenDue(s, nowMs);
   const mine = s.assignedOperator === name;
@@ -174,9 +176,9 @@ export function Workspace(p: WorkspaceProps) {
       </div>
 
       <div className="ctx">
-        {contextEntries.length > 0 && (
+        {compactContextEntries.length > 0 && (
           <div className="tchips" aria-label="Triagem do bot">
-            {contextEntries.slice(0, 8).map(([key, v]) => (
+            {compactContextEntries.slice(0, 8).map(([key, v]) => (
               <span key={key}>
                 <em>{prettyKey(key)}</em>
                 {String(v)}
@@ -184,6 +186,16 @@ export function Workspace(p: WorkspaceProps) {
             ))}
           </div>
         )}
+        {longContextEntries.map(([key, value]) => (
+          <details className="initial-intent" key={key}>
+            <summary>
+              <span className="initial-intent-label">{prettyKey(key)}</span>
+              <span className="initial-intent-preview">{String(value)}</span>
+              <span className="initial-intent-toggle" aria-hidden="true" />
+            </summary>
+            <p>{String(value)}</p>
+          </details>
+        ))}
         {p.history.length > 0 && (
           <details className="info">
             <summary>Histórico do cliente ({p.history.length})</summary>
