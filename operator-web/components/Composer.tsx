@@ -55,7 +55,8 @@ export function Composer(p: ComposerProps) {
       )}
 
       {p.mode === 'reply' && canWrite && (
-        <>
+        <details className="quick-tools">
+          <summary>Respostas rápidas e modelos</summary>
           <div className="qr" aria-label="Respostas rápidas">
             {QUICK_REPLIES.map((q) => (
               <button type="button" key={q} onClick={() => p.onText(p.text ? p.text + ' ' + q : q)}>
@@ -84,7 +85,7 @@ export function Composer(p: ComposerProps) {
               ))}
             </div>
           )}
-        </>
+        </details>
       )}
 
       {p.mode === 'note' && p.role !== 'viewer' ? (

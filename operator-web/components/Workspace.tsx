@@ -129,49 +129,52 @@ export function Workspace(p: WorkspaceProps) {
         </div>
 
         {isOpen && (
-          <div className="actions">
-            {!p.isCommercialLead && p.canActOnSelected && p.role !== 'viewer' && (
-              <button type="button" className="btn sm" onClick={p.onTransfer}>
-                <Icon name="transfer" />
-                Transferir
-              </button>
-            )}
-            {!p.isCommercialLead && (
-              <button type="button" className="btn sm ghost" onClick={() => p.onAction('followup')}>
-                <Icon name="clock" />
-                Agendar retorno
-              </button>
-            )}
-            {s.destinationArea === 'commercial' && (
-              <>
-                <button type="button" className="btn sm ghost" onClick={p.onSyncPloomes}>
-                  <Icon name="users" />
-                  Cadastrar oportunidade
+          <details className="case-actions">
+            <summary>Mais ações</summary>
+            <div className="actions">
+              {!p.isCommercialLead && p.canActOnSelected && p.role !== 'viewer' && (
+                <button type="button" className="btn sm" onClick={p.onTransfer}>
+                  <Icon name="transfer" />
+                  Transferir
                 </button>
-                <button type="button" className="btn sm ghost" onClick={() => p.onAction('ploomesManual')}>
-                  Cadastro manual
+              )}
+              {!p.isCommercialLead && (
+                <button type="button" className="btn sm ghost" onClick={() => p.onAction('followup')}>
+                  <Icon name="clock" />
+                  Agendar retorno
                 </button>
-              </>
-            )}
-            {['technical', 'on_call'].includes(s.destinationArea || '') && (
-              <button type="button" className="btn sm ghost" onClick={() => p.onAction('serviceOrder')}>
-                <Icon name="wrench" />
-                Registrar OS manual
-              </button>
-            )}
-            {p.selectedColumn && mine && (
-              <label className="mv">
-                Mover para
-                <select value={p.selectedColumn} disabled={p.movingId === s.id} onChange={(e) => p.onMove(s, e.target.value as BoardColumn)}>
-                  {COLUMNS.filter((c) => c.id !== 'closed').map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
+              )}
+              {s.destinationArea === 'commercial' && (
+                <>
+                  <button type="button" className="btn sm ghost" onClick={p.onSyncPloomes}>
+                    <Icon name="users" />
+                    Cadastrar oportunidade
+                  </button>
+                  <button type="button" className="btn sm ghost" onClick={() => p.onAction('ploomesManual')}>
+                    Cadastro manual
+                  </button>
+                </>
+              )}
+              {['technical', 'on_call'].includes(s.destinationArea || '') && (
+                <button type="button" className="btn sm ghost" onClick={() => p.onAction('serviceOrder')}>
+                  <Icon name="wrench" />
+                  Registrar OS manual
+                </button>
+              )}
+              {p.selectedColumn && mine && (
+                <label className="mv">
+                  Mover para
+                  <select value={p.selectedColumn} disabled={p.movingId === s.id} onChange={(e) => p.onMove(s, e.target.value as BoardColumn)}>
+                    {COLUMNS.filter((c) => c.id !== 'closed').map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          </details>
         )}
       </div>
 
