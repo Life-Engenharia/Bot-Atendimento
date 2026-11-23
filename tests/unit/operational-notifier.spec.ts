@@ -108,4 +108,26 @@ describe('operational notifier', () => {
     expect(email.send).not.toHaveBeenCalledWith(expect.objectContaining({ to: 'tecnico@life.eng.br' }));
     expect(email.send).not.toHaveBeenCalledWith(expect.objectContaining({ to: 'comercial@life.eng.br' }));
   });
+
+  it('sends an email when an operator assumes a conversation', async () => {
+    const { store } = createStore();
+    const email = { send: vi.fn().mockResolvedValue(undefined) };
+    const notifier = new OperationalNotifier(store, undefined, {}, {}, email, {
+      commercial: 'vendas@life.eng.br',
+    });
+
+    await notifier.claimed('LFE-COM-0002', 'João Victor', {
+      id: 'conversation-1',
+      destinationArea: 'commercial',
+      contactName: 'Ana Cliente',
+      contactPhone: '5511999999999',
+      suggestedPriority: 'P3',
+    });
+
+    expect(email.send).toHaveBeenCalledWith({
+      to: 'vendas@life.eng.br',
+      subject: '[Life Engenharia] Oportunidade assumida LFE-COM-0002',
+      text: expect.stringContaining('Responsável: João Victor'),
+    });
+  });
 });

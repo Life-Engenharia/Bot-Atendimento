@@ -221,11 +221,11 @@ export function buildAdminApp(dependencies: AdminAppDependencies = {}): FastifyI
     const classified =
       insight && (metadata.category === 'other' || insight.confidence === 'high')
         ? {
-            ...metadata,
-            ...insight,
-            onCallDate: metadata.onCallDate ?? insight.onCallDate,
-            onCallMembers: metadata.onCallMembers ?? insight.onCallMembers,
-          }
+          ...metadata,
+          ...insight,
+          onCallDate: metadata.onCallDate ?? insight.onCallDate,
+          onCallMembers: metadata.onCallMembers ?? insight.onCallMembers,
+        }
         : metadata;
     const saved = await supabaseStore.saveOperationalDocument({
       ...classified,

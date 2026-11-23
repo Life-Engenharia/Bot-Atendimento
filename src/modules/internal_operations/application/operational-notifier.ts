@@ -6,6 +6,13 @@ export type OperationalEmailSender = {
   send(message: OperationalEmailMessage): Promise<void>;
 };
 
+type ClaimNotificationConversation = Pick<StoredConversation, 'id'> & {
+  contactName?: string | null;
+  contactPhone?: string;
+  destinationArea?: string | null;
+  suggestedPriority?: string | null;
+};
+
 /**
  * Entrega o resumo ao destino corporativo. O envio é deliberadamente separado
  * da criação do protocolo: falha no WhatsApp nunca pode descartar a triagem.
@@ -48,6 +55,36 @@ export class OperationalNotifier {
       `Impacto: ${conversation.context.operationalImpact ?? 'não informado'}`,
       `Risco informado: ${conversation.context.reportedRisk ?? 'não informado'}`,
     ], priority);
+  }
+
+  async claimed(
+    reference: string,
+    operatorName: string,
+    conversation: ClaimNotificationConversation,
+  ): Promise<void> {
+    const area = conversation.destinationArea === 'commercial' ? 'commercial' : 'technical';
+    const emailRecipients = await this.emailRecipients(area, conversation.suggestedPriority ?? undefined);
+    if (!emailRecipients.length || !this.emailSender) return;
+    const subjectPrefix = area === 'commercial' ? 'Oportunidade assumida' : 'Chamado assumido';
+    const text = [
+      'Atendimento assumido · Central Life',
+      '',
+      `Protocolo: ${reference}`,
+      `Responsável: ${operatorName}`,
+      `Cliente: ${conversation.contactName ?? 'não informado'}`,
+      `Telefone: ${conversation.contactPhone ?? 'não informado'}`,
+      '',
+      'O responsável iniciou o atendimento na Central Life.',
+    ].join('\n');
+    await Promise.all(
+      emailRecipients.map((to) =>
+        this.sendEmail(area, to, {
+          to,
+          subject: `[Life Engenharia] ${subjectPrefix} ${reference}`,
+          text,
+        }, reference, conversation),
+      ),
+    );
   }
 
   private async send(
@@ -154,7 +191,7 @@ export class OperationalNotifier {
     destination: string,
     message: OperationalEmailMessage,
     reference: string,
-    conversation: StoredConversation,
+    conversation: Pick<StoredConversation, 'id'>,
   ): Promise<void> {
     if (!this.emailSender) return;
     try {

@@ -178,48 +178,48 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   const operationalEmailSender = dependencies.operationalEmailSender ?? (
     operationalConfigurationStore && environment.SMTP_PASSWORD
       ? {
-          send: async (message: OperationalEmailMessage) => {
-            const configuration = await smtpConfigurationFromSettings(
-              operationalConfigurationStore,
-              environment.SMTP_PASSWORD!,
-            );
-            if (!configuration)
-              throw new Error('Configure e salve o SMTP no Admin antes do disparo automático.');
-            await new SmtpEmailSender(configuration).send(message);
-          },
-        }
+        send: async (message: OperationalEmailMessage) => {
+          const configuration = await smtpConfigurationFromSettings(
+            operationalConfigurationStore,
+            environment.SMTP_PASSWORD!,
+          );
+          if (!configuration)
+            throw new Error('Configure e salve o SMTP no Admin antes do disparo automático.');
+          await new SmtpEmailSender(configuration).send(message);
+        },
+      }
       : undefined
   );
   const operationalEmailDestinations = environment.OPERATIONAL_NOTIFICATION_EMAIL_MODE === 'department'
     ? {
-        commercial: environment.COMMERCIAL_NOTIFICATION_EMAIL ?? 'vendas@life.eng.br',
-        technical: environment.TECHNICAL_NOTIFICATION_EMAIL ?? 'contato@life.eng.br',
-      }
+      commercial: environment.COMMERCIAL_NOTIFICATION_EMAIL ?? 'vendas@life.eng.br',
+      technical: environment.TECHNICAL_NOTIFICATION_EMAIL ?? 'contato@life.eng.br',
+    }
     : {
-        commercial: environment.OPERATIONAL_NOTIFICATION_TEST_EMAIL ?? 'informatica@life.eng.br',
-        technical: environment.OPERATIONAL_NOTIFICATION_TEST_EMAIL ?? 'informatica@life.eng.br',
-      };
+      commercial: environment.OPERATIONAL_NOTIFICATION_TEST_EMAIL ?? 'informatica@life.eng.br',
+      technical: environment.OPERATIONAL_NOTIFICATION_TEST_EMAIL ?? 'informatica@life.eng.br',
+    };
   const operationalNotifier = supabaseStore
     ? new OperationalNotifier(supabaseStore, outboundSender, {
-        commercial: environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
-        technical: environment.TECHNICAL_NOTIFICATION_PHONE_E164,
-      }, {
-        commercial: environment.COMMERCIAL_NOTIFICATION_TEMPLATE,
-        technical: environment.TECHNICAL_NOTIFICATION_TEMPLATE,
-      }, operationalEmailSender, operationalEmailDestinations)
+      commercial: environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
+      technical: environment.TECHNICAL_NOTIFICATION_PHONE_E164,
+    }, {
+      commercial: environment.COMMERCIAL_NOTIFICATION_TEMPLATE,
+      technical: environment.TECHNICAL_NOTIFICATION_TEMPLATE,
+    }, operationalEmailSender, operationalEmailDestinations)
     : undefined;
   const mediaIngestionService = supabaseStore
     ? new MediaIngestionService(
-        supabaseStore,
-        whatsappClient,
-        environment.OPENAI_API_KEY && environment.OPENAI_MODEL
-          ? new OpenAiMediaAnalyzer(
-              environment.OPENAI_API_KEY,
-              environment.OPENAI_MODEL,
-              environment.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
-            )
-          : undefined,
-      )
+      supabaseStore,
+      whatsappClient,
+      environment.OPENAI_API_KEY && environment.OPENAI_MODEL
+        ? new OpenAiMediaAnalyzer(
+          environment.OPENAI_API_KEY,
+          environment.OPENAI_MODEL,
+          environment.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+        )
+        : undefined,
+    )
     : undefined;
   const ploomesClient = environment.PLOOMES_USER_KEY
     ? new PloomesClient(environment.PLOOMES_USER_KEY)
@@ -228,39 +228,39 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     dependencies.persistedMenuService ??
     (supabaseStore
       ? new PersistedMenuService(
-          supabaseStore,
-          administrativeMenu,
-          triageAnalyzer,
-          outboundSender,
-          responseRefiner,
-          mediaIngestionService,
-          operationalNotifier,
-          () => operatorEvents.emit('inbox'),
-          operationalConfigurationStore,
-          environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
-          ploomesClient
-            ? {
-                findContactByDocument: async (document: string) => {
-                  // A consulta ao Ploomes nunca pode bloquear a fila do WhatsApp.
-                  // Se a API externa estiver lenta/indisponível, o cadastro local
-                  // deve ser consultado em até poucos segundos.
-                  const ploomesLookup = ploomesClient.findContactByDocument(document);
-                  const timeout = new Promise<undefined>((resolve) =>
-                    setTimeout(() => resolve(undefined), 3500),
-                  );
-                  const ploomesContact = await Promise.race([ploomesLookup, timeout]).catch(() => undefined);
-                  return ploomesContact ?? (await supabaseStore.findContactByDocument(document));
-                },
-              }
-            : { findContactByDocument: (document: string) => supabaseStore.findContactByDocument(document) },
-        )
+        supabaseStore,
+        administrativeMenu,
+        triageAnalyzer,
+        outboundSender,
+        responseRefiner,
+        mediaIngestionService,
+        operationalNotifier,
+        () => operatorEvents.emit('inbox'),
+        operationalConfigurationStore,
+        environment.COMMERCIAL_NOTIFICATION_PHONE_E164,
+        ploomesClient
+          ? {
+            findContactByDocument: async (document: string) => {
+              // A consulta ao Ploomes nunca pode bloquear a fila do WhatsApp.
+              // Se a API externa estiver lenta/indisponível, o cadastro local
+              // deve ser consultado em até poucos segundos.
+              const ploomesLookup = ploomesClient.findContactByDocument(document);
+              const timeout = new Promise<undefined>((resolve) =>
+                setTimeout(() => resolve(undefined), 3500),
+              );
+              const ploomesContact = await Promise.race([ploomesLookup, timeout]).catch(() => undefined);
+              return ploomesContact ?? (await supabaseStore.findContactByDocument(document));
+            },
+          }
+          : { findContactByDocument: (document: string) => supabaseStore.findContactByDocument(document) },
+      )
       : undefined);
   const commercialSyncService =
     supabaseStore && environment.PLOOMES_USER_KEY
       ? new CommercialPloomesSyncService(
-          supabaseStore,
-          ploomesClient!,
-        )
+        supabaseStore,
+        ploomesClient!,
+      )
       : undefined;
   const app = Fastify({
     logger: loggerOptions(environment),
@@ -273,7 +273,7 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
   let webhookDrainScheduled = false;
   const drainWebhookQueue = async () => {
     if (!supabaseStore || !persistedMenuService) return;
-    for (;;) {
+    for (; ;) {
       // Processa pequenos lotes em paralelo para que uma chamada externa lenta
       // (OpenAI, Supabase ou Meta) não segure todos os demais atendimentos.
       // A fila do banco continua garantindo que cada mensagem seja processada
@@ -512,11 +512,11 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     const classified =
       insight && (metadata.category === 'other' || insight.confidence === 'high')
         ? {
-            ...metadata,
-            ...insight,
-            onCallDate: metadata.onCallDate ?? insight.onCallDate,
-            onCallMembers: metadata.onCallMembers ?? insight.onCallMembers,
-          }
+          ...metadata,
+          ...insight,
+          onCallDate: metadata.onCallDate ?? insight.onCallDate,
+          onCallMembers: metadata.onCallMembers ?? insight.onCallMembers,
+        }
         : metadata;
     return reply.code(201).send(
       await supabaseStore.saveOperationalDocument({
@@ -653,6 +653,67 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
     if (!supabaseStore)
       return reply.code(503).send({ error: 'Banco de dados ainda não configurado.' });
     return supabaseStore.runDueEscalations();
+  });
+
+  app.post('/api/admin/jobs/inactivity', async (request, reply) => {
+    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
+      return reply.code(401).send({ error: 'Não autorizado.' });
+    if (!supabaseStore || !outboundSender)
+      return reply.code(503).send({ error: 'Banco de dados ou WhatsApp ainda não configurado.' });
+
+    const actions = await supabaseStore.claimDueInactivityActions();
+    let warned = 0;
+    let closed = 0;
+    let failed = 0;
+    for (const action of actions) {
+      if (action.action === 'warn') {
+        const text = 'Olá! Ainda precisa dos serviços da Life Engenharia? Caso não recebamos retorno, este atendimento será encerrado em 20 minutos.';
+        try {
+          const delivery = await outboundSender.sendText(action.phone, text);
+          const completed = await supabaseStore.completeInactivityWarning(
+            action.conversationId,
+            action.claimToken,
+          );
+          if (!completed) continue;
+          await supabaseStore.saveOutbound(action.conversationId, text, {
+            messageId: delivery.messageId,
+            status: 'sent',
+          });
+          await supabaseStore.audit('conversation.inactivity_warning_sent', 'scheduler', {
+            conversationId: action.conversationId,
+          });
+          warned += 1;
+        } catch (error) {
+          failed += 1;
+          await supabaseStore.releaseInactivityWarning(action.conversationId, action.claimToken);
+          app.log.error({ err: error, conversationId: action.conversationId }, 'inactivity_warning_failed');
+        }
+        continue;
+      }
+
+      const wasClosed = await supabaseStore.closeInactiveConversation(
+        action.conversationId,
+        action.claimToken,
+      );
+      if (!wasClosed) continue;
+      closed += 1;
+      const text = 'Como não recebemos seu retorno, encerramos este atendimento por inatividade. Quando precisar, envie uma nova mensagem e teremos prazer em ajudar.';
+      try {
+        const delivery = await outboundSender.sendText(action.phone, text);
+        await supabaseStore.saveOutbound(action.conversationId, text, {
+          messageId: delivery.messageId,
+          status: 'sent',
+        });
+      } catch (error) {
+        failed += 1;
+        app.log.error({ err: error, conversationId: action.conversationId }, 'inactivity_close_notification_failed');
+      }
+      await supabaseStore.audit('conversation.closed_for_inactivity', 'scheduler', {
+        conversationId: action.conversationId,
+      });
+      operatorEvents.emit('inbox');
+    }
+    return { warned, closed, failed };
   });
 
   app.post<{ Body: unknown }>('/api/admin/jobs/retention', async (request, reply) => {
@@ -997,6 +1058,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
           });
         }
       }
+      void operationalNotifier
+        ?.claimed(conversation.protocolId ?? conversation.id, actor.name, conversation)
+        .catch(() => undefined);
       operatorEvents.emit('inbox');
       return reply.code(204).send();
     },
@@ -1095,9 +1159,9 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       operatorEvents.emit('inbox');
       return result.failed
         ? reply.code(502).send({
-            error:
-              'O Ploomes não confirmou a inclusão. A pendência foi mantida para nova tentativa.',
-          })
+          error:
+            'O Ploomes não confirmou a inclusão. A pendência foi mantida para nova tentativa.',
+        })
         : reply.code(201).send({ synced: true });
     },
   );
@@ -1782,64 +1846,3 @@ async function sendOperationalAlertEmail(
     alerts: alerts.length,
   });
 }
-  app.post('/api/admin/jobs/inactivity', async (request, reply) => {
-    if (!authorizeDashboard(request.headers.authorization, environment.ADMIN_DASHBOARD_TOKEN))
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    if (!supabaseStore || !outboundSender)
-      return reply.code(503).send({ error: 'Banco de dados ou WhatsApp ainda não configurado.' });
-
-    const actions = await supabaseStore.claimDueInactivityActions();
-    let warned = 0;
-    let closed = 0;
-    let failed = 0;
-    for (const action of actions) {
-      if (action.action === 'warn') {
-        const text = 'Olá! Ainda precisa dos serviços da Life Engenharia? Caso não recebamos retorno, este atendimento será encerrado em 20 minutos.';
-        try {
-          const delivery = await outboundSender.sendText(action.phone, text);
-          const completed = await supabaseStore.completeInactivityWarning(
-            action.conversationId,
-            action.claimToken,
-          );
-          if (!completed) continue;
-          await supabaseStore.saveOutbound(action.conversationId, text, {
-            messageId: delivery.messageId,
-            status: 'sent',
-          });
-          await supabaseStore.audit('conversation.inactivity_warning_sent', 'scheduler', {
-            conversationId: action.conversationId,
-          });
-          warned += 1;
-        } catch (error) {
-          failed += 1;
-          await supabaseStore.releaseInactivityWarning(action.conversationId, action.claimToken);
-          app.log.error({ err: error, conversationId: action.conversationId }, 'inactivity_warning_failed');
-        }
-        continue;
-      }
-
-      const wasClosed = await supabaseStore.closeInactiveConversation(
-        action.conversationId,
-        action.claimToken,
-      );
-      if (!wasClosed) continue;
-      closed += 1;
-      const text = 'Como não recebemos seu retorno, encerramos este atendimento por inatividade. Quando precisar, envie uma nova mensagem e teremos prazer em ajudar.';
-      try {
-        const delivery = await outboundSender.sendText(action.phone, text);
-        await supabaseStore.saveOutbound(action.conversationId, text, {
-          messageId: delivery.messageId,
-          status: 'sent',
-        });
-      } catch (error) {
-        failed += 1;
-        app.log.error({ err: error, conversationId: action.conversationId }, 'inactivity_close_notification_failed');
-      }
-      await supabaseStore.audit('conversation.closed_for_inactivity', 'scheduler', {
-        conversationId: action.conversationId,
-      });
-      operatorEvents.emit('inbox');
-    }
-    return { warned, closed, failed };
-  });
-
