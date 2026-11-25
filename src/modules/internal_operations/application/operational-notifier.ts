@@ -88,8 +88,20 @@ export class OperationalNotifier {
   }
 
   async conversationStarted(conversation: StoredConversation, firstMessage?: string): Promise<void> {
-    if (!this.emailSender) return;
     const to = 'informatica@life.eng.br';
+    if (!this.emailSender) {
+      const error = new Error(
+        'O envio de e-mail não foi inicializado. Verifique SMTP_PASSWORD no ambiente do serviço.',
+      );
+      await this.store.audit('operation.notification_failed', 'system', {
+        area: 'inbound',
+        channel: 'email',
+        conversationId: conversation.id,
+        destination: to,
+        error: error.message,
+      });
+      throw error;
+    }
     const reference = conversation.id;
     const text = [
       'Novo atendimento iniciado · Central Life',

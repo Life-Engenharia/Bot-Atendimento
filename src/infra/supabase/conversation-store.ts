@@ -404,6 +404,10 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   async claimNewConversationNotifications(messages: IncomingMessage[]): Promise<NewConversationNotification[]> {
     const claimed: NewConversationNotification[] = [];
     for (const message of messages) {
+      // The webhook asks for the claim before the queued processor has had a
+      // chance to create a contact. Ensure first-time senders exist so the RPC
+      // can create their first conversation and notification cycle.
+      await this.upsertContact(message.from);
       const rows = await this.request<Array<{ conversation: StoredConversation }>>(
         'rpc/claim_new_conversation_notification',
         {

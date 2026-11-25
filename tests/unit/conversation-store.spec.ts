@@ -9,6 +9,35 @@ const empty = (status = 204) => new Response(null, { status });
 afterEach(() => vi.restoreAllMocks());
 
 describe('Supabase conversation processing resilience', () => {
+  it('ensures first-time senders exist before claiming a new-conversation notification', async () => {
+    const calls: Array<{ path: string; method?: string; body?: Record<string, unknown> }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+      calls.push({ path, method: init?.method, body });
+      if (path.endsWith('/contacts')) return json([{ id: 'contact-1' }], 201);
+      if (path.endsWith('/rpc/claim_new_conversation_notification'))
+        return json([{ conversation: { id: 'conversation-1', state: 'consent', route: null, context: {} } }]);
+      throw new Error(`Unexpected Supabase request: ${path}`);
+    });
+
+    const claimed = await store().claimNewConversationNotifications([{
+      id: 'wamid-first-message',
+      from: '5511999999999',
+      text: 'Oi',
+    }]);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      expect.stringContaining('/contacts'),
+      expect.stringContaining('/rpc/claim_new_conversation_notification'),
+    ]);
+    expect(calls[1]?.body).toEqual({
+      p_meta_message_id: 'wamid-first-message',
+      p_phone_e164: '5511999999999',
+    });
+    expect(claimed).toHaveLength(1);
+  });
+
   it('normalizes Supabase signed paths returned without the storage prefix', () => {
     expect(
       normalizeSupabaseSignedUrl('/object/sign/protocol-attachments/a/b.png?token=x', 'https://test-project.supabase.co'),

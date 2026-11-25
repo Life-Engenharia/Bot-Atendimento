@@ -1590,9 +1590,13 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       if (persistedMenuService && supabaseStore) {
         try {
           // Envia o aviso imediatamente ao receber o webhook, antes da fila.
-          // O aviso usa o email do cliente como chave de ciclo no banco para
-          // não repetir em webhooks duplicados ou mensagens subsequentes.
+          // O aviso usa o ID da mensagem da Meta como chave para não repetir
+          // em webhooks duplicados ou mensagens subsequentes.
           const newConversationMessages = await supabaseStore.claimNewConversationNotifications(messages);
+          request.log.info(
+            { incomingMessages: messages.length, claimedNotifications: newConversationMessages.length },
+            'new_conversation_notification_claims',
+          );
           for (const item of newConversationMessages) {
             try {
               await operationalNotifier?.conversationStarted(item.conversation, item.message.text);

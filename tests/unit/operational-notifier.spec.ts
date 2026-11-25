@@ -130,4 +130,17 @@ describe('operational notifier', () => {
       text: expect.stringContaining('Responsável: João Victor'),
     });
   });
+
+  it('records and reports when the SMTP sender is not initialized for a new conversation', async () => {
+    const { store, audits } = createStore();
+    const notifier = new OperationalNotifier(store, undefined, {});
+
+    await expect(notifier.conversationStarted(conversation, 'Olá')).rejects.toThrow(
+      'Verifique SMTP_PASSWORD no ambiente do serviço',
+    );
+    expect(audits).toContainEqual(expect.objectContaining({
+      event: 'operation.notification_failed',
+      details: expect.objectContaining({ area: 'inbound', channel: 'email' }),
+    }));
+  });
 });
