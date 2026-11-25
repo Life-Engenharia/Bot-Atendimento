@@ -101,11 +101,22 @@ export class OperationalNotifier {
       '',
       'O cliente iniciou uma conversa e aguarda atendimento.',
     ].join('\n');
-    await this.sendEmail('technical', to, {
+    try {
+      await this.emailSender.send({
       to,
       subject: `[Life Engenharia] Novo atendimento iniciado ${reference}`,
       text,
-    }, reference, conversation);
+      });
+      await this.store.audit('operation.notification_sent', 'system', {
+        area: 'inbound', channel: 'email', conversationId: conversation.id, destination: to,
+      });
+    } catch (error) {
+      await this.store.audit('operation.notification_failed', 'system', {
+        area: 'inbound', channel: 'email', conversationId: conversation.id, destination: to,
+        error: error instanceof Error ? error.message : 'Erro desconhecido.',
+      });
+      throw error;
+    }
   }
 
   private async send(

@@ -1589,6 +1589,20 @@ export function buildApp(dependencies: AppDependencies = {}): FastifyInstance {
       }
       if (persistedMenuService && supabaseStore) {
         try {
+          // Envia o aviso imediatamente ao receber o webhook, antes da fila.
+          // O aviso usa o email do cliente como chave de ciclo no banco para
+          // não repetir em webhooks duplicados ou mensagens subsequentes.
+          const newConversationMessages = await supabaseStore.claimNewConversationNotifications(messages);
+          for (const item of newConversationMessages) {
+            try {
+              await operationalNotifier?.conversationStarted(item.conversation, item.message.text);
+            } catch (error) {
+              request.log.error(
+                { err: error, conversationId: item.conversation.id },
+                'new_conversation_email_failed',
+              );
+            }
+          }
           // Um comando explícito de reinício invalida mensagens antigas ainda
           // aguardando na fila para o mesmo contato.
           for (const message of messages) {

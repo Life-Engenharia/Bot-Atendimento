@@ -113,6 +113,7 @@ type Contact = {
   document_number?: string | null;
 };
 type StoredMessage = { id: string; conversation_id?: string | null; processed_at?: string | null };
+export type NewConversationNotification = { conversation: StoredConversation; message: IncomingMessage };
 export type WebhookJob = { id: string; message: IncomingMessage; attempts: number };
 
 export type CommercialSyncJob = {
@@ -398,6 +399,22 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       [200, 201],
     );
     return inserted?.length ?? 0;
+  }
+
+  async claimNewConversationNotifications(messages: IncomingMessage[]): Promise<NewConversationNotification[]> {
+    const claimed: NewConversationNotification[] = [];
+    for (const message of messages) {
+      const rows = await this.request<Array<{ conversation: StoredConversation }>>(
+        'rpc/claim_new_conversation_notification',
+        {
+          method: 'POST',
+          body: JSON.stringify({ p_meta_message_id: message.id, p_phone_e164: message.from }),
+        },
+        [200],
+      );
+      if (rows?.[0]?.conversation) claimed.push({ conversation: rows[0].conversation, message });
+    }
+    return claimed;
   }
 
   /** Remove mensagens ainda não processadas do contato quando ele solicita
