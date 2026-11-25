@@ -181,7 +181,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   async acceptInbound(
     message: IncomingMessage,
   ): Promise<
-    { conversation: StoredConversation; reopened: boolean; created: boolean; surveyResponse?: 'resolved' } | undefined
+    { conversation: StoredConversation; reopened: boolean; started: boolean; surveyResponse?: 'resolved' } | undefined
   > {
     let inserted = await this.request<StoredMessage[]>(
       'messages',
@@ -222,7 +222,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       isReopenRequest(message.text ?? message.interactiveId) ||
       message.interactiveId === 'satisfaction_partial';
     let conversation: StoredConversation;
-    let created = false;
+    let started = false;
     if (inserted[0].conversation_id) {
       const recovered = await this.request<
         Array<StoredConversation & { assigned_operator?: string | null }>
@@ -231,13 +231,15 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
         {},
         [200],
       );
-      conversation = recovered[0]
-        ? { ...recovered[0], assignedOperator: recovered[0].assigned_operator ?? null }
+      const prior = recovered[0];
+      conversation = prior
+        ? { ...prior, assignedOperator: prior.assigned_operator ?? null }
         : (await this.findOrCreateConversation(contact.id, reopened, surveyCandidate)).conversation;
+      started = Boolean(prior && prior.state === 'closed' && !surveyCandidate && normalizedReply !== '1');
     } else {
       const found = await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
       conversation = found.conversation;
-      created = found.created;
+      started = found.created;
     }
     const numericSurveyCandidate =
       conversation.state === 'closed' && (normalizedReply === '1' || normalizedReply === '2');
@@ -251,6 +253,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       conversation.state = 'consent';
       conversation.route = null;
       conversation.context = {};
+      started = true;
     }
     const surveyResponse =
       conversation.state === 'closed' &&
@@ -284,7 +287,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       from: message.from,
       hasText: Boolean(message.text),
     });
-    return { conversation, reopened, created, surveyResponse };
+    return { conversation, reopened, started, surveyResponse };
   }
 
   async saveConversation(conversation: StoredConversation): Promise<void> {

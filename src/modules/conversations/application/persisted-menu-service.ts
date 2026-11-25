@@ -147,7 +147,7 @@ export class PersistedMenuService {
       processed += 1;
       acceptedMessages.push(message);
       this.onInboundPersisted?.();
-      if (accepted.created) {
+      if (accepted.started) {
         try {
           await this.operationalNotifier?.conversationStarted(accepted.conversation, message.text);
         } catch (error) {
