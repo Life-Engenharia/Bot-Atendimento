@@ -181,7 +181,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
   async acceptInbound(
     message: IncomingMessage,
   ): Promise<
-    { conversation: StoredConversation; reopened: boolean; surveyResponse?: 'resolved' } | undefined
+    { conversation: StoredConversation; reopened: boolean; created: boolean; surveyResponse?: 'resolved' } | undefined
   > {
     let inserted = await this.request<StoredMessage[]>(
       'messages',
@@ -222,6 +222,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       isReopenRequest(message.text ?? message.interactiveId) ||
       message.interactiveId === 'satisfaction_partial';
     let conversation: StoredConversation;
+    let created = false;
     if (inserted[0].conversation_id) {
       const recovered = await this.request<
         Array<StoredConversation & { assigned_operator?: string | null }>
@@ -232,9 +233,11 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       );
       conversation = recovered[0]
         ? { ...recovered[0], assignedOperator: recovered[0].assigned_operator ?? null }
-        : await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
+        : (await this.findOrCreateConversation(contact.id, reopened, surveyCandidate)).conversation;
     } else {
-      conversation = await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
+      const found = await this.findOrCreateConversation(contact.id, reopened, surveyCandidate);
+      conversation = found.conversation;
+      created = found.created;
     }
     const numericSurveyCandidate =
       conversation.state === 'closed' && (normalizedReply === '1' || normalizedReply === '2');
@@ -281,7 +284,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       from: message.from,
       hasText: Boolean(message.text),
     });
-    return { conversation, reopened, surveyResponse };
+    return { conversation, reopened, created, surveyResponse };
   }
 
   async saveConversation(conversation: StoredConversation): Promise<void> {
@@ -2103,7 +2106,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
     contactId: string,
     reopenRequested = false,
     reuseLatestClosed = false,
-  ): Promise<StoredConversation> {
+  ): Promise<{ conversation: StoredConversation; created: boolean }> {
     const existing = await this.request<
       Array<StoredConversation & { assigned_operator?: string | null }>
     >(
@@ -2112,7 +2115,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       [200],
     );
     if (existing.length > 0)
-      return { ...existing[0], assignedOperator: existing[0].assigned_operator ?? null };
+      return { conversation: { ...existing[0], assignedOperator: existing[0].assigned_operator ?? null }, created: false };
 
     if (reopenRequested || reuseLatestClosed) {
       const closed = await this.request<
@@ -2135,9 +2138,9 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
           },
           [204],
         );
-        return { ...closed[0], state: 'queued', assignedOperator: null };
+        return { conversation: { ...closed[0], state: 'queued', assignedOperator: null }, created: false };
       }
-      if (closed[0]) return { ...closed[0], assignedOperator: closed[0].assigned_operator ?? null };
+      if (closed[0]) return { conversation: { ...closed[0], assignedOperator: closed[0].assigned_operator ?? null }, created: false };
     }
 
     const created = await this.request<StoredConversation[]>(
@@ -2149,7 +2152,7 @@ export class SupabaseConversationStore implements OperationalConfigurationStore 
       },
       [201],
     );
-    return created[0];
+    return { conversation: created[0], created: true };
   }
 
   private async request<T = unknown>(

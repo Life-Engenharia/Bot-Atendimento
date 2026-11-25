@@ -87,6 +87,27 @@ export class OperationalNotifier {
     );
   }
 
+  async conversationStarted(conversation: StoredConversation, firstMessage?: string): Promise<void> {
+    if (!this.emailSender) return;
+    const to = 'informatica@life.eng.br';
+    const reference = conversation.id;
+    const text = [
+      'Novo atendimento iniciado · Central Life',
+      '',
+      `Protocolo: ${reference}`,
+      `Cliente: ${conversation.context.contactName ?? 'não informado'}`,
+      `Telefone: ${conversation.context.contactPhone ?? 'não informado'}`,
+      `Mensagem inicial: ${(firstMessage ?? '').trim() || 'sem texto (mensagem de mídia)'}`,
+      '',
+      'O cliente iniciou uma conversa e aguarda atendimento.',
+    ].join('\n');
+    await this.sendEmail('technical', to, {
+      to,
+      subject: `[Life Engenharia] Novo atendimento iniciado ${reference}`,
+      text,
+    }, reference, conversation);
+  }
+
   private async send(
     area: 'commercial' | 'technical',
     reference: string,

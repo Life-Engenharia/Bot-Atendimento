@@ -147,6 +147,18 @@ export class PersistedMenuService {
       processed += 1;
       acceptedMessages.push(message);
       this.onInboundPersisted?.();
+      if (accepted.created) {
+        try {
+          await this.operationalNotifier?.conversationStarted(accepted.conversation, message.text);
+        } catch (error) {
+          await this.store.audit('operation.notification_failed', 'system', {
+            area: 'inbound',
+            channel: 'email',
+            conversationId: accepted.conversation.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido.',
+          });
+        }
+      }
       await this.mediaIngestionService?.ingest(accepted.conversation, message.media);
       const administrativeResponse = await this.administrativeMenu?.handle(
         message.from,
